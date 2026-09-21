@@ -32,7 +32,7 @@ export function calculateDamage(weapon: Weapon, dice: DiceResult, position: 'mel
   if (weapon.range === 'long' && position === 'melee') baseDamage *= 0.5;
 
   if (dice.outcome === 'complete') baseDamage *= 2;
-  if (dice.outcome === 'partial') baseDamage *= 1;
+  if (dice.outcome === 'partial') baseDamage *= 1.5;
   if (dice.outcome === 'miss') baseDamage = 0;
 
   return Math.floor(baseDamage);

@@ -78,7 +78,13 @@ export function cloneState(state: GameState): GameState {
 }
 
 export function applyStateChanges(state: GameState, changes: Partial<GameState>): GameState {
-  return { ...state, ...changes, turn: state.turn + 1 };
+  const { stress, health, sanity, morale, factions, inventory, companions, clocks, environment, morality, location, ...rest } = changes as any;
+  return {
+    ...state,
+    ...rest,
+    ...(location !== undefined ? { location } : {}),
+    turn: state.turn + 1,
+  };
 }
 
 export function getModifier(state: GameState, attribute: keyof Character['attributes']): number {

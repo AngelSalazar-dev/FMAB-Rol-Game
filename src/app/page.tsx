@@ -56,7 +56,7 @@ export default function HomePage() {
 
           <div className="space-y-3">
             <Link
-              href="/game"
+              href={`/game?character=${selectedCharacter.id}`}
               className="block px-6 py-4 bg-fmab-gold text-fmab-darker font-bold rounded-lg hover:bg-fmab-goldLight transition-colors font-mono text-lg"
             >
               COMENZAR PARTIDA

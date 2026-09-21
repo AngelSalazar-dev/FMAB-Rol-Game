@@ -110,6 +110,8 @@ export function advanceTime(state: GameState): GameState {
 
   return {
     ...state,
+    weather: newWeather,
+    timeOfDay: nextTime,
     environment: {
       ...state.environment,
       time: nextTime,

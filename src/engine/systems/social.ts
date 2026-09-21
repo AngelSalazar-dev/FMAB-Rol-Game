@@ -35,7 +35,7 @@ export function processSocial(parsed: ParsedAction, dice: DiceResult, state: Gam
       details.push('Logras algo, pero no todo. El objetivo duda o pone condiciones.');
       changes.social = { success: true, intent, attitude: 'neutral', conditions: true };
       changes.stress = 5;
-      if (intent === 'bribe') changes.inventory = { remove: { name: 'dinero', quantity: 100 } };
+      if (intent === 'bribe') changes.inventory = { remove: { name: 'dinero', quantity: 25 } };
       break;
     case 'miss':
       details.push('Tus palabras fallan. El objetivo se ofende, desconfía o ataca.');

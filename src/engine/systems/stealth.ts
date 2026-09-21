@@ -1,5 +1,6 @@
 import type { GameState, ParsedAction, DiceResult, GameStateChanges } from '@/types/game';
 import { getOutcomeLabel } from '../core/dice';
+import { getEnvironmentModifiers } from './weather';
 
 export function processStealth(parsed: ParsedAction, dice: DiceResult, state: GameState) {
   const details: string[] = [];
@@ -69,18 +70,4 @@ export function processPerception(parsed: ParsedAction, dice: DiceResult, state:
       break  }
 
   return { success: outcome !== 'miss', outcome, changes, details };
-}
-
-function getEnvironmentModifiers(env: GameState['environment']) {
-  const mods = { visibility: 0, alchemyBonus: 0, stealthBonus: 0, automailPenalty: 0 };
-
-  if (env.weather === 'rain') { mods.alchemyBonus += 1; mods.visibility -= 1; }
-  if (env.weather === 'snow') { mods.automailPenalty += 2; mods.visibility -= 1; mods.stealthBonus += 1; }
-  if (env.weather === 'fog') { mods.stealthBonus += 2; mods.visibility -= 2; }
-  if (env.weather === 'storm') { mods.visibility -= 2; mods.stealthBonus += 1; }
-
-  if (env.time === 'night') { mods.stealthBonus += 1; mods.visibility -= 1; }
-  if (env.time === 'dawn' || env.time === 'dusk') { mods.visibility -= 1; }
-
-  return mods;
 }

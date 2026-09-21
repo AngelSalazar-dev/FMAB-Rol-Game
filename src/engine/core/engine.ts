@@ -2,7 +2,12 @@ import type { GameState, ParsedAction, DiceResult, GameStateChanges } from '@/ty
 import { rollDice, getOutcomeLabel } from './dice';
 import { parseAction, getAttributeForAction } from './input';
 import { applyStateChanges, getModifier, shouldRetire, isAlive, isInsane } from './state';
-import { advanceClock, isClockComplete } from './clocks';
+import { addStress, reduceSanity } from '@/engine/systems/stress';
+import { addInjury, healInjury } from '@/engine/systems/health';
+import { increaseSuspicion, changeReputation } from '@/engine/systems/factions';
+import { updateLoyalty } from '@/engine/systems/companions';
+import { addDecision } from '@/engine/systems/morality';
+import { advanceClock, reduceClock } from './clocks';
 import { processAlchemy } from '@/engine/systems/alchemy';
 import { processCombat } from '@/engine/systems/combat';
 import { processStealth } from '@/engine/systems/stealth';
@@ -11,12 +16,6 @@ import { processExploration } from '@/engine/systems/exploration';
 import { processInventory } from '@/engine/systems/inventory';
 import { processRest } from '@/engine/systems/downtime';
 import { generateNarrative } from '@/engine/ai/router';
-import { addStress } from '@/engine/systems/stress';
-import { addInjury, healInjury } from '@/engine/systems/health';
-import { increaseSuspicion, changeReputation } from '@/engine/systems/factions';
-import { updateLoyalty } from '@/engine/systems/companions';
-import { addDecision } from '@/engine/systems/morality';
-import { getEnvironmentModifiers } from '@/engine/systems/weather';
 
 export interface GameResponse {
   narrative: string;
@@ -88,6 +87,9 @@ export async function processAction(input: string, state: GameState): Promise<Ga
   if (mechanicalResult.changes.stress) {
     newState.stress = addStress(newState.stress, mechanicalResult.changes.stress);
   }
+  if (mechanicalResult.changes.sanity) {
+    newState.sanity = reduceSanity(newState.sanity, mechanicalResult.changes.sanity);
+  }
   if (mechanicalResult.changes.injury) {
     newState.health = addInjury(newState.health, mechanicalResult.changes.injury);
   }
@@ -125,7 +127,11 @@ export async function processAction(input: string, state: GameState): Promise<Ga
     for (const [clockId, segments] of Object.entries(mechanicalResult.changes.clocks)) {
       const clockIndex = newState.clocks.findIndex(c => c.id === clockId);
       if (clockIndex !== -1) {
-        newState.clocks[clockIndex] = advanceClock(newState.clocks[clockIndex], segments);
+        if (segments >= 0) {
+          newState.clocks[clockIndex] = advanceClock(newState.clocks[clockIndex], segments);
+        } else {
+          newState.clocks[clockIndex] = reduceClock(newState.clocks[clockIndex], Math.abs(segments));
+        }
       }
     }
   }

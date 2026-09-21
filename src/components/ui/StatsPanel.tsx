@@ -1,17 +1,12 @@
 'use client';
 
+import type { GameState } from '@/types/game';
+
 interface StatsPanelProps {
   character: GameState['character'];
   health: GameState['health'];
   stress: GameState['stress'];
   sanity: GameState['sanity'];
-}
-
-interface GameState {
-  character: any;
-  health: any;
-  stress: any;
-  sanity: any;
 }
 
 function StatBar({ label, value, max, color, warningThreshold = 0.3 }: {
@@ -76,7 +71,7 @@ export function StatsPanel({ character, health, stress, sanity }: StatsPanelProp
           ].map(({ key, label }) => (
             <div key={key} className="flex justify-between">
               <span className="text-fmab-steel">{label}</span>
-              <span className="text-fmab-parchment font-bold">{character.attributes[key]}</span>
+              <span className="text-fmab-parchment font-bold">{character.attributes[key as keyof typeof character.attributes]}</span>
             </div>
           ))}
         </div>

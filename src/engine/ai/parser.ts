@@ -25,7 +25,3 @@ export function parseAIResponse(response: string): AIResponse {
     };
   }
 }
-
-export function buildNarrativePrompt(context: any): string {
-  return context;
-}

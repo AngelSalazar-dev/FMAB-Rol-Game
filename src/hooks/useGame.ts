@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
-import type { GameState, ParsedAction, DiceResult } from '@/types/game';
-import { INITIAL_STATE, createInitialState } from '@/engine/core/state';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import type { GameState, DiceResult } from '@/types/game';
+import { INITIAL_STATE } from '@/engine/core/state';
 
 export function useGame(initialState?: GameState) {
   const [state, setState] = useState<GameState>(initialState || INITIAL_STATE);
@@ -10,6 +10,14 @@ export function useGame(initialState?: GameState) {
   const [isLoading, setIsLoading] = useState(false);
   const [lastDice, setLastDice] = useState<DiceResult | null>(null);
   const [lastOutcome, setLastOutcome] = useState<'complete' | 'partial' | 'miss' | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  useEffect(() => {
+    if (initialState && initialState.character.id !== 0 && initialState.character.id !== state.character.id) {
+      setState(initialState);
+    }
+  }, [initialState?.character?.id]);
 
   const sendAction = useCallback(async (input: string) => {
     if (!input.trim() || isLoading) return;
@@ -21,7 +29,7 @@ export function useGame(initialState?: GameState) {
       const response = await fetch('/api/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input, state }),
+        body: JSON.stringify({ input, state: stateRef.current }),
       });
 
       if (!response.ok) {
@@ -40,7 +48,7 @@ export function useGame(initialState?: GameState) {
     } finally {
       setIsLoading(false);
     }
-  }, [state, isLoading]);
+  }, [isLoading]);
 
   const resetGame = useCallback((newState?: GameState) => {
     setState(newState || INITIAL_STATE);

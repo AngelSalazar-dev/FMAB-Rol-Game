@@ -1,5 +1,7 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+
 interface TypewriterProps {
   text: string;
   speed?: number;
@@ -29,5 +31,3 @@ export function Typewriter({ text, speed = 20, onComplete }: TypewriterProps) {
 
   return <span>{displayed}</span>;
 }
-
-import { useState, useEffect } from 'react';

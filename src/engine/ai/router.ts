@@ -1,7 +1,7 @@
 import Groq from 'groq-sdk';
 import OpenAI from 'openai';
 
-const GROQ_MODEL = 'openai/gpt-oss-120b';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const OPENROUTER_MODELS = [
   'openai/gpt-oss-120b:free',
   'nvidia/nemotron-3-super-120b-a12b:free',
@@ -52,15 +52,18 @@ export function initProviders() {
   }
 }
 
-function isInCooldown(name: ProviderName): boolean {
+function checkCooldown(name: ProviderName): boolean {
   const s = status[name];
-  if (Date.now() < s.cooldownUntil) return true;
-  if (s.cooldownUntil > 0) {
+  return Date.now() < s.cooldownUntil;
+}
+
+function resetCooldownIfNeeded(name: ProviderName) {
+  const s = status[name];
+  if (s.cooldownUntil > 0 && Date.now() >= s.cooldownUntil) {
     s.cooldownUntil = 0;
     s.failCount = 0;
     s.available = true;
   }
-  return false;
 }
 
 function recordFailure(name: ProviderName) {
@@ -142,8 +145,10 @@ function buildPrompt(context: NarrativeContext): string {
 
 export async function streamChat(messages: { role: 'system' | 'user' | 'assistant'; content: string }[]): Promise<string> {
   initProviders();
+  resetCooldownIfNeeded('groq');
+  resetCooldownIfNeeded('openrouter');
 
-  if (groqClient && !isInCooldown('groq')) {
+  if (groqClient && !checkCooldown('groq')) {
     try {
       const stream = await groqClient.chat.completions.create({
         model: GROQ_MODEL,
@@ -164,7 +169,7 @@ export async function streamChat(messages: { role: 'system' | 'user' | 'assistan
     }
   }
 
-  if (openrouterClient && !isInCooldown('openrouter')) {
+  if (openrouterClient && !checkCooldown('openrouter')) {
     try {
       const response = await openrouterClient.chat.completions.create({
         model: OPENROUTER_MODELS[0],
@@ -191,8 +196,8 @@ export async function streamChat(messages: { role: 'system' | 'user' | 'assistan
 
 export function getProviderStatus() {
   return {
-    groq: { enabled: !!groqClient, inCooldown: isInCooldown('groq') },
-    openrouter: { enabled: !!openrouterClient, inCooldown: isInCooldown('openrouter') },
+    groq: { enabled: !!groqClient, inCooldown: checkCooldown('groq') },
+    openrouter: { enabled: !!openrouterClient, inCooldown: checkCooldown('openrouter') },
   };
 }
 

@@ -98,14 +98,26 @@ export function CharacterCreate({ onComplete }: CharacterCreateProps) {
   const handleBack = () => setStep(prev => Math.max(prev - 1, 1));
 
   const handleSubmit = async () => {
+    const selectedOrigin = ORIGINS.find(o => o.id === formData.origin);
     const selectedHistory = HISTORIES.find(h => h.id === formData.history);
+    const attributes = { ...formData.attributes };
+    if (selectedOrigin?.bonus) {
+      for (const [k, v] of Object.entries(selectedOrigin.bonus)) {
+        if (k in attributes) attributes[k as keyof typeof attributes] += v;
+      }
+    }
+    if (selectedOrigin?.penalty) {
+      for (const [k, v] of Object.entries(selectedOrigin.penalty)) {
+        if (k in attributes) attributes[k as keyof typeof attributes] += v;
+      }
+    }
     const character = {
       name: formData.name,
       origin: formData.origin,
       history: formData.history,
       seenGate: formData.seenGate,
       appearance: formData.appearance,
-      attributes: formData.attributes,
+      attributes,
       skills: selectedHistory?.skills || [],
       hp: 100,
       maxHp: 100,

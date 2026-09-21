@@ -1,5 +1,7 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+
 interface DiceRollProps {
   result: { roll1: number; roll2: number; modifier: number; total: number; outcome: string } | null;
   onComplete?: () => void;
@@ -70,5 +72,3 @@ export function DiceRoll({ result, onComplete }: DiceRollProps) {
     </div>
   );
 }
-
-import { useState, useEffect } from 'react';

@@ -107,6 +107,12 @@ export async function getCharacter(id: number): Promise<Character | null> {
     appearance: JSON.parse(row.appearance),
     attributes: JSON.parse(row.attributes),
     skills: JSON.parse(row.skills),
+    hp: row.hp,
+    maxHp: row.max_hp,
+    stress: row.stress,
+    maxStress: row.max_stress,
+    sanity: row.sanity,
+    maxSanity: row.max_sanity,
   } as Character;
 }
 
@@ -122,6 +128,12 @@ export async function getCharacters(): Promise<Character[]> {
     appearance: JSON.parse(row.appearance),
     attributes: JSON.parse(row.attributes),
     skills: JSON.parse(row.skills),
+    hp: row.hp,
+    maxHp: row.max_hp,
+    stress: row.stress,
+    maxStress: row.max_stress,
+    sanity: row.sanity,
+    maxSanity: row.max_sanity,
   })) as Character[];
 }
 
