@@ -178,6 +178,10 @@ export interface EnvironmentState {
   temperature: number;
 }
 
+export type WeatherType = EnvironmentState['weather'];
+export type TimeOfDay = EnvironmentState['time'];
+export type TerrainType = EnvironmentState['terrain'];
+
 export interface GameState {
   turn: number;
   mode: 'freedom' | 'story';
@@ -188,9 +192,9 @@ export interface GameState {
   inventory: Item[];
   factions: FactionState;
   location: string;
-  weather: string;
-  timeOfDay: string;
-  terrain: string;
+  weather: WeatherType;
+  timeOfDay: TimeOfDay;
+  terrain: TerrainType;
   companions: Companion[];
   clocks: Clock[];
   morality: MoralityState;
@@ -319,9 +323,12 @@ export interface GameStateChanges {
   exploration?: { found: boolean };
   perception?: { alert: boolean; details: string };
   location?: string;
-  environment?: { terrain?: string };
+  environment?: { terrain?: TerrainType };
   investigation?: { success: boolean; info: string };
-  [key: string]: any;
+  npcs?: NPC[];
+  companions?: Companion[];
+  character?: Partial<Character>;
+  factions?: Partial<FactionState>;
 }
 
 export interface LocationData {
