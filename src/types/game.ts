@@ -187,7 +187,7 @@ export interface GameState {
 }
 
 export interface ParsedAction {
-  type: 'alchemy' | 'combat' | 'stealth' | 'social' | 'exploration' | 'inventory' | 'rest' | 'unknown';
+  type: 'alchemy' | 'combat' | 'stealth' | 'social' | 'exploration' | 'inventory' | 'rest' | 'moral' | 'unknown';
   intent: string;
   target?: string;
   material?: string;

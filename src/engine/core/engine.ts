@@ -6,7 +6,7 @@ import { addStress, reduceSanity } from '@/engine/systems/stress';
 import { addInjury, healInjury } from '@/engine/systems/health';
 import { increaseSuspicion, changeReputation } from '@/engine/systems/factions';
 import { updateLoyalty } from '@/engine/systems/companions';
-import { addDecision } from '@/engine/systems/morality';
+import { addDecision, getRandomMoralChoice } from '@/engine/systems/morality';
 import { advanceClock, reduceClock, isClockComplete, Clock } from './clocks';
 import { processAlchemy } from '@/engine/systems/alchemy';
 import { processCombat } from '@/engine/systems/combat';
@@ -73,6 +73,9 @@ export async function processAction(input: string, state: GameState): Promise<Ga
       break;
     case 'rest':
       mechanicalResult = processRest(parsed, dice, state);
+      break;
+    case 'moral':
+      mechanicalResult = processMoralResponse(parsed, state);
       break;
     default:
       mechanicalResult = {
@@ -188,6 +191,12 @@ export async function processAction(input: string, state: GameState): Promise<Ga
     newState = advanceTime(newState);
   }
 
+  // Organic moral dilemmas based on context
+  const moralPrompt = generateMoralPrompt(newState, parsed, mechanicalResult);
+  if (moralPrompt) {
+    mechanicalResult.details.push(moralPrompt);
+  }
+
   if (mechanicalResult.changes.combat) {
     const combat = mechanicalResult.changes.combat;
     if (combat.damage > 0 && newState.npcs.length > 0) {
@@ -200,6 +209,28 @@ export async function processAction(input: string, state: GameState): Promise<Ga
         if (target.hp <= 0) {
           mechanicalResult.details.push(`¡${target.name} ha sido derrotado!`);
           newState.npcs.splice(targetIndex, 1);
+        }
+      }
+    }
+
+    // Companion combat assistance
+    if (newState.companions.length > 0 && combat.damage > 0) {
+      for (const companion of newState.companions) {
+        if (companion.loyalty > 40 && Math.random() < 0.5) {
+          const companionDamage = Math.floor(5 + companion.loyalty / 10);
+          if (newState.npcs.length > 0) {
+            const targetIdx = newState.npcs.findIndex(n => n.isHostile);
+            if (targetIdx !== -1) {
+              const t = newState.npcs[targetIdx];
+              const dmg = Math.max(1, companionDamage - t.armor);
+              t.hp -= dmg;
+              mechanicalResult.details.push(`${companion.name} ataca y causa ${dmg} de daño adicional.`);
+              if (t.hp <= 0) {
+                mechanicalResult.details.push(`¡${t.name} es derrotado por ${companion.name}!`);
+                newState.npcs.splice(targetIdx, 1);
+              }
+            }
+          }
         }
       }
     }
@@ -225,4 +256,106 @@ export async function processAction(input: string, state: GameState): Promise<Ga
 
 export function formatDiceResult(dice: DiceResult): string {
   return `${dice.roll1} + ${dice.roll2} ${dice.modifier >= 0 ? '+' : ''}${dice.modifier} = ${dice.total} (${getOutcomeLabel(dice.outcome)})`;
+}
+
+function generateMoralPrompt(state: GameState, parsed: any, result: any): string | null {
+  // Trigger 1: After combat with low-HP enemy (show mercy?)
+  if (parsed.type === 'combat' && result.outcome === 'complete' && state.npcs.length > 0) {
+    const target = state.npcs.find(n => n.isHostile && n.hp > 0 && n.hp < n.maxHp * 0.3);
+    if (target && Math.random() < 0.4) {
+      return `⚖️ DILEMA: ${target.name} está herido y vulnerable. ¿Le perdonas la vida? (Responde "perdonar" o "ejecutar")`;
+    }
+  }
+
+  // Trigger 2: High suspicion + social interaction
+  if (parsed.type === 'social' && state.factions.suspicion > 60 && Math.random() < 0.3) {
+    return `⚖️ DILEMA: La sospecha es alta. ¿Mentir para protegerte o decir la verdad arriesgándote? (Responde "mentir" o "verdad")`;
+  }
+
+  // Trigger 3: Found item + companion needs help
+  if (parsed.type === 'inventory' && state.companions.length > 0) {
+    const hurtCompanion = state.companions.find(c => c.loyalty < 50);
+    if (hurtCompanion && Math.random() < 0.3) {
+      return `⚖️ DILEMA: ${hurtCompanion.name} necesita ayuda pero tienes algo importante. ¿Compartir o guardar? (Responde "compartir" o "guardar")`;
+    }
+  }
+
+  // Trigger 4: Low sanity + exploration (temptation)
+  if (parsed.type === 'exploration' && state.sanity.current < 30 && Math.random() < 0.4) {
+    return `⚖️ DILEMA: Tu cordura es baja. Sientes una extraña tentación en esta zona. ¿Resistir o ceder? (Responde "resistir" o "ceder")`;
+  }
+
+  // Trigger 5: Morality drift warning
+  if (state.morality.karma < -50 && Math.random() < 0.2) {
+    return `⚖️ SEÑAL: Tu camino se oscurece. El karma es ${state.morality.karma}. Considera tus acciones.`;
+  }
+  if (state.morality.karma > 50 && Math.random() < 0.2) {
+    return `⚖️ SEÑAL: Tu camino es noble. El karma es ${state.morality.karma}. Sigue así.`;
+  }
+
+  return null;
+}
+
+function processMoralResponse(parsed: ParsedAction, state: GameState) {
+  const lower = parsed.raw.toLowerCase();
+  const details: string[] = [];
+  const changes: GameStateChanges = {};
+
+  // Mercy dilemmas
+  if (lower.includes('perdonar')) {
+    changes.morality = { description: 'Perdonar la vida de un enemigo herido', choice: 'Perdonar', karmaChange: 15, consequences: ['Compasión', 'Puede arrepentirse después'] };
+    changes.stress = -5;
+    details.push('Eliges la compasión. El enemigo escapa.');
+  } else if (lower.includes('ejecutar')) {
+    changes.morality = { description: 'Ejecutar a un enemigo herido', choice: 'Ejecutar', karmaChange: -20, consequences: ['Crueldad', 'Reputación de verdugo'] };
+    changes.stress = 10;
+    details.push('No dejas testigos. El peso de tu decisión te persigue.');
+  }
+  // Truth/lie dilemmas
+  else if (lower.includes('mentir')) {
+    changes.morality = { description: 'Mentir para protegerse', choice: 'Mentir', karmaChange: -5, consequences: ['Engaño', 'Sospecha reducida'] };
+    changes.suspicion = -10;
+    details.push('Tu mentira es convincente. La sospecha baja.');
+  } else if (lower.includes('verdad')) {
+    changes.morality = { description: 'Decir la verdad arriesgándose', choice: 'Verdad', karmaChange: 10, consequences: ['Honestidad', 'Sospecha aumenta'] };
+    changes.suspicion = 15;
+    details.push('La verdad sale a la luz. La sospecha aumenta.');
+  }
+  // Sharing dilemmas
+  else if (lower.includes('compartir')) {
+    changes.morality = { description: 'Compartir recursos con un compañero', choice: 'Compartir', karmaChange: 10, consequences: ['Generosidad', 'Compañero agradecido'] };
+    changes.companionLoyalty = { id: state.companions[0]?.id || '', change: 15 };
+    details.push('Tu compañero agradece tu generosidad.');
+  } else if (lower.includes('guardar')) {
+    changes.morality = { description: 'Guardar recursos para uno mismo', choice: 'Guarda', karmaChange: -10, consequences: ['Egoísmo', 'Compañero decepcionado'] };
+    changes.companionLoyalty = { id: state.companions[0]?.id || '', change: -10 };
+    details.push('Tu compañero parece decepcionado.');
+  }
+  // Temptation dilemmas
+  else if (lower.includes('resistir')) {
+    changes.morality = { description: 'Resistir la tentación oscura', choice: 'Resistir', karmaChange: 15, consequences: ['Fortaleza mental', 'Cordura estable'] };
+    changes.sanity = -5;
+    details.push('Resistes la tentación. Tu mente se mantiene fuerte.');
+  } else if (lower.includes('ceder')) {
+    changes.morality = { description: 'Ceder a la tentación oscura', choice: 'Ceder', karmaChange: -25, consequences: ['Corrupción', 'Poder oscuro'] };
+    changes.sanity = -20;
+    changes.stress = 15;
+    details.push('Cedes a la oscuridad. Sientes poder fluyendo, pero algo se rompe dentro.');
+  }
+  // Generic moral response
+  else if (lower.includes('moral') || lower.includes('dilema') || lower.includes('decido')) {
+    const choice = getRandomMoralChoice();
+    details.push(`DILEMA MORAL: ${choice.description}`);
+    choice.options.forEach((opt, i) => {
+      details.push(`  ${i + 1}. ${opt.text} (Karma: ${opt.karma >= 0 ? '+' : ''}${opt.karma})`);
+    });
+    changes.moralChoice = choice;
+    return { success: true, outcome: 'complete' as const, changes, details };
+  }
+
+  if (details.length === 0) {
+    return { success: false, outcome: 'miss' as const, changes, details: ['Respuesta no reconocida. Intenta "perdonar", "ejecutar", "mentir", "verdad", "compartir", "guardar", "resistir" o "ceder".'] };
+  }
+
+  return { success: true, outcome: 'complete' as const, changes, details };
 }

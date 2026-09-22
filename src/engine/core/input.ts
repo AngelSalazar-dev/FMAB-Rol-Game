@@ -1,7 +1,7 @@
 import type { GameState } from '@/types/game';
 
 export type ParsedAction = {
-  type: 'alchemy' | 'combat' | 'stealth' | 'social' | 'exploration' | 'inventory' | 'rest' | 'unknown';
+  type: 'alchemy' | 'combat' | 'stealth' | 'social' | 'exploration' | 'inventory' | 'rest' | 'moral' | 'unknown';
   intent: string;
   target?: string;
   material?: string;
@@ -17,6 +17,7 @@ const SOCIAL_KEYWORDS = ['hablo', 'hablar', 'digo', 'pregunto', 'convenco', 'eng
 const EXPLORATION_KEYWORDS = ['busco', 'buscar', 'examino', 'examinar', 'inspecciono', 'inspeccionar', 'leo', 'leer', 'investigo', 'muevo', 'voy', 'camino', 'entro', 'salgo'];
 const INVENTORY_KEYWORDS = ['inventario', 'bolso', 'mochila', 'equipo', 'uso', 'usar', 'tomo', 'tomar', 'dejo', 'dropear'];
 const REST_KEYWORDS = ['descanso', 'descansar', 'duermo', 'dormir', 'recupero', 'recuperar', 'medito', 'curar', 'curo'];
+const MORAL_KEYWORDS = ['perdonar', 'ejecutar', 'mentir', 'verdad', 'compartir', 'guardar', 'resistir', 'ceder', 'moral', 'dilema', 'decido'];
 
 export function parseAction(input: string, state: GameState): ParsedAction {
   const lower = input.toLowerCase().trim();
@@ -62,6 +63,12 @@ export function parseAction(input: string, state: GameState): ParsedAction {
   for (const kw of REST_KEYWORDS) {
     if (lower.includes(kw)) {
       return { type: 'rest', intent: 'recover', raw: input };
+    }
+  }
+
+  for (const kw of MORAL_KEYWORDS) {
+    if (lower.includes(kw)) {
+      return { type: 'moral', intent: 'choose', raw: input };
     }
   }
 

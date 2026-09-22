@@ -1,6 +1,7 @@
 import type { GameState, ParsedAction, DiceResult, GameStateChanges } from '@/types/game';
 import { getOutcomeLabel } from '../core/dice';
 import { LOCATIONS, extractLocation } from '@/engine/data/locations';
+import { spawnNPCsForLocation } from '@/engine/data/npcs';
 
 export function processExploration(parsed: ParsedAction, dice: DiceResult, state: GameState) {
   const details: string[] = [];
@@ -36,6 +37,11 @@ export function processExploration(parsed: ParsedAction, dice: DiceResult, state
       details.push(newLoc?.description || '');
       changes.environment = { terrain: newLoc?.terrain || 'urban' };
       changes.clocks = { suspicion: 1 };
+      // Spawn NPCs for new location
+      changes.npcs = spawnNPCsForLocation(target, []);
+      if (newLoc?.npcs && newLoc.npcs.length > 0) {
+        details.push(`Presencias detectadas: ${newLoc.npcs.slice(0, 2).join(', ')}.`);
+      }
     } else if (target) {
       details.push(`No hay camino directo a ${target} desde aquí.`);
       return { success: false, outcome: 'miss' as const, changes, details };

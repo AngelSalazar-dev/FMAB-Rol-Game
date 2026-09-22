@@ -124,13 +124,55 @@ function buildPrompt(context: NarrativeContext): string {
   }
 
   prompt += `ESTADO ACTUAL:\n`;
+  prompt += `- Nombre: ${state.character.name} (${state.character.origin}, ${state.character.history})\n`;
+  prompt += `- Atributos: FUE:${state.character.attributes.str} AGI:${state.character.attributes.agi} INT:${state.character.attributes.int} PER:${state.character.attributes.per} VOL:${state.character.attributes.vol} CAR:${state.character.attributes.car}\n`;
   prompt += `- HP: ${state.health.current}/${state.health.max}\n`;
   prompt += `- Estrés: ${state.stress.current}/${state.stress.max}\n`;
   prompt += `- Cordura: ${state.sanity.current}/${state.sanity.max}\n`;
   prompt += `- Sospecha: ${state.factions.suspicion}/100\n`;
   prompt += `- Ubicación: ${state.location}\n`;
-  prompt += `- Clima: ${state.environment.weather}, ${state.environment.time}\n`;
-  prompt += `- Compañeros: ${state.companions.map((c: any) => c.name).join(', ') || 'Ninguno'}\n\n`;
+  prompt += `- Clima: ${state.environment.weather}, ${state.environment.time}, ${state.environment.temperature}°C\n`;
+  prompt += `- Alineamiento: ${state.morality.alignment} (Karma: ${state.morality.karma})\n\n`;
+
+  if (state.health.injuries.length > 0) {
+    prompt += `HERIDAS ACTIVAS:\n`;
+    state.health.injuries.forEach((inj: any) => {
+      prompt += `- ${inj.bodyPart}: ${inj.type} (${inj.severity}) ${inj.treated ? '[TRATADA]' : '[SIN TRATAR]'}\n`;
+    });
+    prompt += '\n';
+  }
+
+  if (state.inventory.length > 0) {
+    prompt += `INVENTARIO:\n`;
+    state.inventory.forEach((item: any) => {
+      prompt += `- ${item.name} x${item.quantity} (${item.item_type})\n`;
+    });
+    prompt += '\n';
+  }
+
+  if (state.npcs.length > 0) {
+    prompt += `NPCS PRESENTES:\n`;
+    state.npcs.forEach((npc: any) => {
+      prompt += `- ${npc.name} (${npc.archetype}, ${npc.faction}) HP:${npc.hp}/${npc.maxHp} ${npc.isHostile ? '[HOSTIL]' : '[NEUTRAL]'}\n`;
+    });
+    prompt += '\n';
+  }
+
+  if (state.companions.length > 0) {
+    prompt += `COMPAÑEROS:\n`;
+    state.companions.forEach((c: any) => {
+      prompt += `- ${c.name} (Lealtad: ${c.loyalty}%) Skills: ${c.skills.join(', ')}\n`;
+    });
+    prompt += '\n';
+  }
+
+  if (state.stress.traumas.length > 0) {
+    prompt += `TRAUMAS: ${state.stress.traumas.map((t: any) => t.type).join(', ')}\n\n`;
+  }
+
+  if (state.stealth?.hidden) {
+    prompt += `ESTADO: OCULTO (ventaja en próximo ataque)\n`;
+  }
 
   prompt += `INSTRUCCIONES:\n`;
   prompt += `1. Escribe SOLO la narrativa descriptiva en segunda persona.\n`;
@@ -138,7 +180,11 @@ function buildPrompt(context: NarrativeContext): string {
   prompt += `3. NO cambies el estado del juego.\n`;
   prompt += `4. Respeta el resultado: ${mechanicalResult.outcome}.\n`;
   prompt += `5. Tono: oscuro, militar, fantasía oscura (Fullmetal Alchemist Brotherhood).\n`;
-  prompt += `6. Segunda persona ("Tú ves...", "Sientes...", "El suelo cruje...").\n\n`;
+  prompt += `6. Segunda persona ("Tú ves...", "Sientes...", "El metal cruje...").\n`;
+  prompt += `7. Sé conciso: 2-4 párrafos máximo.\n`;
+  prompt += `8. Incluye detalles sensoriales (olor, sonido, textura).\n`;
+  prompt += `9. Si hay heridas, menciona el dolor.\n`;
+  prompt += `10. Si hay NPCs hostiles, describe su comportamiento.\n\n`;
 
   if (mechanicalResult.outcome === 'miss') {
     prompt += `IMPORTANTE: La acción FALLÓ. Describe el fracaso dramático y sus consecuencias ya calculadas.\n`;
@@ -226,27 +272,44 @@ export function getProviderStatus() {
 }
 
 const FMAB_SYSTEM_PROMPT = `
-Eres el narrador de un juego de rol ambientado en Fullmetal Alchemist: Brotherhood.
+Eres el narrador de un juego de rol ambientado en Fullmetal Alchemist: Brotherhood. Ecribes narrativa envolvente, cinematográfica y concisa.
 
 REGLAS ESTRICTAS:
 1. SOLO genera narrativa descriptiva en segunda persona.
-2. NUNCA inventes consecuencias mecánicas nuevas.
+2. NUNCA inventes consecuencias mecánicas nuevas (daño, curación, estrés, sospecha).
 3. NUNCA cambies el estado del juego.
 4. NUNCA ignores los dados tirados.
 5. Respeta el resultado mecánico que se te indica (ÉXITO_COMPLETO, ÉXITO_PARCIAL, FALLO).
-6. Mantén tono oscuro y militar.
-7. Narrativa en segunda persona ("Tú ves...", "Sientes...", "El metal cruje...").
+6. Tono oscuro, militar, fantasía oscura (Fullmetal Alchemist Brotherhood).
+7. Segunda persona ("Tú ves...", "Sientes...", "El metal cruje...").
+8. Sé conciso: 2-4 párrafos máximo.
+9. Incluye detalles sensoriales (olor, sonido, textura).
+10. Si hay heridas activas, menciona el dolor.
+11. Si hay NPCs hostiles, describe su comportamiento.
+12. Si el personaje está OCULTO, describe la ventaja sigilosa.
+13. Si el personaje tiene compañeros, menciona sus acciones brevemente.
+
+ESTRUCTURA NARRATIVA:
+- Apertura: Describe el entorno y la acción del jugador (1 párrafo).
+- Desarrollo: Muestra la consecuencia de la tirada (1-2 párrafos).
+- Cierre: Termina con una imagen sensorial o gancho (1 frase).
 
 EJEMPLO DE ENTRADA:
 - Acción: "Transmuto el suelo para crear una pared"
 - Resultado: ÉXITO_PARCIAL
+- Heridas activas: quemadura en brazo izquierdo (sin tratar)
 - Estrés: +10
 - Sospecha: +1
 - Detalles: "Consumes 10 unidades de hierro. La transmutación funciona, pero algo no sale como planeabas."
 
 EJEMPLO DE SALIDA CORRECTA:
-"El suelo cruje y se eleva formando una barrera de metal oxidado. El aire se llena de chispas. Sientes un tirón en el antebrazo izquierdo - una grieta pequeña recorre la pared, pero la barrera se mantiene. Alguien podría haber visto las chispas desde la calle."
+"El suelo cruje bajo tus pies mientras dibujas el círculo de transmutación. El aire se llena de chispas azules y la tierra se eleva formando una barrera de metal oxidado. La quemadura en tu brazo izquierdo arde con cada movimiento, pero la pared se mantiene. Alguien podría haber visto las chispas desde la calle. El metal huele a ozono y hierro caliente."
 
 EJEMPLO DE SALIDA INCORRECTA (NO HAGAS ESTO):
 "La pared se crea perfectamente. Recuperas 10 HP. La sospecha baja a 0. Ganas una Piedra Filosofal."
+
+FORMATO DE SALIDA:
+- Solo texto narrativo, sin listas ni bullet points.
+- Sin mencionar mecánicas (HP, estrés, etc.) en la narrativa.
+- Descripciones sensoriales concretas, no abstractas.
 `;
