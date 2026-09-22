@@ -10,19 +10,28 @@ export type ParsedAction = {
   raw: string;
 };
 
-const ALCHEMY_KEYWORDS = ['transmuto', 'transmutar', 'alquimia', 'círculo', 'transmutación', 'creo', 'crear', 'transformo', 'transformar'];
+const ALCHEMY_KEYWORDS = [
+  'transmuto', 'transmutar', 'alquimia', 'círculo', 'transmutación', 
+  'creo', 'crear', 'transformo', 'transformar', 'reparo', 'reparar',
+  'arma', 'escudo', 'trampa', 'curar', 'sanar',
+  'transmutar humano', 'resucitar', 'transmutar cuerpo', 'armadura',
+  'dibujar círculo', 'puerta', 'verdad',
+  'absorber', 'alma', 'piedra filosofal',
+];
 const COMBAT_KEYWORDS = ['ataco', 'atacar', 'golpeo', 'golpear', 'disparo', 'disparar', 'apuñalo', 'apuñalar', 'defiendo', 'esquivo', 'peleo', 'lucho'];
 const STEALTH_KEYWORDS = ['me escondo', 'esconder', 'sigilo', 'silencio', 'acecho', 'infiltro', 'robo', 'hurto'];
 const SOCIAL_KEYWORDS = ['hablo', 'hablar', 'digo', 'pregunto', 'convenco', 'engañ', 'miento', 'amenazo', 'soborno', 'negocio'];
 const EXPLORATION_KEYWORDS = ['busco', 'buscar', 'examino', 'examinar', 'inspecciono', 'inspeccionar', 'leo', 'leer', 'investigo', 'muevo', 'voy', 'camino', 'entro', 'salgo'];
 const INVENTORY_KEYWORDS = ['inventario', 'bolso', 'mochila', 'equipo', 'uso', 'usar', 'tomo', 'tomar', 'dejo', 'dropear'];
-const REST_KEYWORDS = ['descanso', 'descansar', 'duermo', 'dormir', 'recupero', 'recuperar', 'medito', 'curar', 'curo'];
+const REST_KEYWORDS = ['descanso', 'descansar', 'duermo', 'dormir', 'recupero', 'recuperar', 'medito', 'curo'];
 const MORAL_KEYWORDS = ['perdonar', 'ejecutar', 'mentir', 'verdad', 'compartir', 'guardar', 'resistir', 'ceder', 'moral', 'dilema', 'decido'];
 
 export function parseAction(input: string, state: GameState): ParsedAction {
   const lower = input.toLowerCase().trim();
 
-  for (const kw of ALCHEMY_KEYWORDS) {
+  // Sort alchemy keywords by length (longer first) to match "transmutar humano" before "transmutar"
+  const sortedAlchemy = [...ALCHEMY_KEYWORDS].sort((a, b) => b.length - a.length);
+  for (const kw of sortedAlchemy) {
     if (lower.includes(kw)) {
       const material = extractMaterial(lower);
       return { type: 'alchemy', intent: 'transmute', material, raw: input };
