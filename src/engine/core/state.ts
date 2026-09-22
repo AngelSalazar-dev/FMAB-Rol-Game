@@ -80,17 +80,88 @@ export function cloneState(state: GameState): GameState {
 
 export function applyStateChanges(state: GameState, changes: Partial<GameState>): GameState {
   const c = changes as any;
+
+  // Handle inventory add/remove
+  let newInventory = [...state.inventory];
+  if (c.inventory?.add) {
+    const existing = newInventory.find(i => i.name === c.inventory.add.name);
+    if (existing) {
+      newInventory = newInventory.map(i =>
+        i.name === c.inventory.add.name ? { ...i, quantity: i.quantity + c.inventory.add.quantity } : i
+      );
+    } else {
+      newInventory.push({ ...c.inventory.add, id: crypto.randomUUID() });
+    }
+  }
+  if (c.inventory?.remove) {
+    newInventory = newInventory
+      .map(i => i.name === c.inventory.remove.name ? { ...i, quantity: i.quantity - c.inventory.remove.quantity } : i)
+      .filter(i => i.quantity > 0);
+  }
+
+  // Handle companion loyalty
+  let newCompanions = c.companions ? [...c.companions] : [...state.companions];
+  if (c.companionLoyalty) {
+    newCompanions = newCompanions.map(comp =>
+      comp.id === c.companionLoyalty.id
+        ? { ...comp, loyalty: Math.max(0, Math.min(100, comp.loyalty + c.companionLoyalty.change)) }
+        : comp
+    );
+  }
+
+  // Handle clocks
+  let newClocks = [...state.clocks];
+  if (c.clocks) {
+    for (const [clockId, delta] of Object.entries(c.clocks)) {
+      newClocks = newClocks.map(cl =>
+        cl.id === clockId ? { ...cl, filled: Math.max(0, Math.min(cl.segments, cl.filled + (delta as number))) } : cl
+      );
+    }
+  }
+
+  // Handle injuries
+  let newInjuries = [...state.health.injuries];
+  if (c.injury) {
+    newInjuries.push(c.injury);
+  }
+  if (c.heal) {
+    newInjuries = newInjuries.filter(i => !i.treated).slice(c.heal);
+  }
+
+  // Handle money
+  const currentMoney = state.inventory.find(i => i.name === 'dinero');
+  const moneyChange = c.money || 0;
+  if (moneyChange !== 0 && currentMoney) {
+    newInventory = newInventory.map(i =>
+      i.name === 'dinero' ? { ...i, quantity: Math.max(0, i.quantity + moneyChange) } : i
+    );
+  } else if (moneyChange > 0 && !currentMoney) {
+    newInventory.push({ id: crypto.randomUUID(), name: 'dinero', quantity: moneyChange, item_type: 'material', properties: {} });
+  }
+
+  // Handle stress (number = direct change)
+  let newStress = state.stress;
+  if (typeof c.stress === 'number') {
+    newStress = { ...state.stress, current: Math.max(0, Math.min(state.stress.max, state.stress.current + c.stress)) };
+  }
+
+  // Handle sanity (number = direct change)
+  let newSanity = state.sanity;
+  if (typeof c.sanity === 'number') {
+    newSanity = { ...state.sanity, current: Math.max(0, Math.min(state.sanity.max, state.sanity.current + c.sanity)) };
+  }
+
   return {
     ...state,
     ...(c.location !== undefined ? { location: c.location } : {}),
     turn: state.turn + 1,
-    health: c.health ? { ...state.health, ...c.health } : state.health,
-    stress: c.stress !== undefined ? { ...state.stress, ...(typeof c.stress === 'object' ? c.stress : {}) } : state.stress,
-    sanity: c.sanity !== undefined ? { ...state.sanity, ...(typeof c.sanity === 'object' ? c.sanity : {}) } : state.sanity,
+    health: { ...state.health, current: c.health?.current ?? state.health.current, injuries: newInjuries },
+    stress: newStress,
+    sanity: newSanity,
     factions: c.factions ? { ...state.factions, ...c.factions } : state.factions,
-    inventory: c.inventory ? [...state.inventory] : state.inventory,
-    companions: c.companions ? [...c.companions] : state.companions,
-    clocks: c.clocks ? [...state.clocks] : state.clocks,
+    inventory: newInventory,
+    companions: newCompanions,
+    clocks: newClocks,
     environment: c.environment ? { ...state.environment, ...c.environment } : state.environment,
     morality: c.morality ? { ...state.morality, ...(typeof c.morality === 'object' && !Array.isArray(c.morality) ? c.morality : {}) } : state.morality,
     character: c.character ? { ...state.character, ...c.character } : state.character,
