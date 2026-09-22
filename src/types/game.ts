@@ -202,6 +202,10 @@ export interface DiceResult {
   roll2: number;
   modifier: number;
   outcome: 'complete' | 'partial' | 'miss';
+  critical?: boolean;
+  fumble?: boolean;
+  advantage?: boolean;
+  disadvantage?: boolean;
 }
 
 export interface PendingDice {

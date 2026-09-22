@@ -24,16 +24,10 @@ export function processRest(parsed: ParsedAction, dice: DiceResult, state: GameS
   else if (lower.includes('entren') || lower.includes('practic') || lower.includes('mejorar')) activity = DOWNTIME_ACTIVITIES[4];
   else if (lower.includes('trabaj') || lower.includes('ganar') || lower.includes('dinero')) activity = DOWNTIME_ACTIVITIES[5];
 
-  const volMod = 0; // Attribute mod already applied in engine.ts dice roll
-  const adjustedTotal = dice.total + volMod;
-
-  let outcome: 'complete' | 'partial' | 'miss';
-  if (adjustedTotal >= 10) outcome = 'complete';
-  else if (adjustedTotal >= 7) outcome = 'partial';
-  else outcome = 'miss';
+  const outcome = dice.outcome;
 
   details.push(`Actividad: ${activity.name}`);
-  details.push(`Tirada ajustada: ${adjustedTotal} (${getOutcomeLabel(outcome)})`);
+  details.push(`Tirada: ${dice.total} (${getOutcomeLabel(outcome)})`);
 
   switch (activity.id) {
     case 'heal':

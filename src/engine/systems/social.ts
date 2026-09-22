@@ -13,17 +13,10 @@ export function processSocial(parsed: ParsedAction, dice: DiceResult, state: Gam
   else if (lower.includes('amenaz') || lower.includes('intimid')) intent = 'intimidate';
   else if (lower.includes('soborn') || lower.includes('pago') || lower.includes('dinero')) intent = 'bribe';
 
-  const carismaMod = 0; // Attribute mod already applied in engine.ts dice roll
-  const adjustedTotal = dice.total + carismaMod;
-
-  let outcome: 'complete' | 'partial' | 'miss';
-  if (adjustedTotal >= 10) outcome = 'complete';
-  else if (adjustedTotal >= 7) outcome = 'partial';
-  else outcome = 'miss';
+  const outcome = dice.outcome;
 
   details.push(`Intención: ${intent}`);
-  details.push(`Carisma: ${carismaMod >= 0 ? '+' : ''}${carismaMod} (aplicado en tirada base)`);
-  details.push(`Tirada ajustada: ${adjustedTotal} (${getOutcomeLabel(outcome)})`);
+  details.push(`Tirada: ${dice.total} (${getOutcomeLabel(outcome)})`);
 
   switch (outcome) {
     case 'complete':

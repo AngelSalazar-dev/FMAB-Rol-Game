@@ -14,19 +14,12 @@ export function processExploration(parsed: ParsedAction, dice: DiceResult, state
   else if (lower.includes('investig') || lower.includes('examin') || lower.includes('analiz')) intent = 'investigate';
   else if (lower.includes('viajo') || lower.includes('voy a') || lower.includes('me dirijo')) intent = 'travel';
 
-  const perceptionMod = 0; // Attribute mod already applied in engine.ts dice roll
-  const adjustedTotal = dice.total + perceptionMod;
-
-  let outcome: 'complete' | 'partial' | 'miss';
-  if (adjustedTotal >= 10) outcome = 'complete';
-  else if (adjustedTotal >= 7) outcome = 'partial';
-  else outcome = 'miss';
-
+  const outcome = dice.outcome;
   const currentLoc = LOCATIONS[state.location];
 
   details.push(`Ubicación actual: ${currentLoc?.name || state.location}`);
   details.push(`Intención: ${intent}`);
-  details.push(`Tirada ajustada: ${adjustedTotal} (${getOutcomeLabel(outcome)})`);
+  details.push(`Tirada: ${dice.total} (${getOutcomeLabel(outcome)})`);
 
   if (intent === 'travel' || lower.includes('voy') || lower.includes('me muevo')) {
     const target = extractLocation(lower);
