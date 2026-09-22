@@ -3,6 +3,12 @@
 import pool from './db';
 import type { GameState, Character, SaveData, Decision } from '@/types/game';
 
+function safeJsonParse(val: any, fallback: any = null) {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === 'object') return val;
+  try { return JSON.parse(val); } catch { return fallback; }
+}
+
 export async function saveGame(state: GameState, characterId: number): Promise<SaveData> {
   const save = {
     character_id: characterId,
@@ -38,9 +44,9 @@ export async function loadGame(saveId: number): Promise<SaveData | null> {
     id: row.id,
     characterId: row.character_id,
     mode: row.mode,
-    state: JSON.parse(row.state),
+    state: safeJsonParse(row.state, {}),
     turnCount: row.turn_count,
-    decisionHistory: JSON.parse(row.decision_history || '[]'),
+    decisionHistory: safeJsonParse(row.decision_history, []),
     isAlive: row.is_alive,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -57,9 +63,9 @@ export async function getSaves(characterId: number): Promise<SaveData[]> {
     id: row.id,
     characterId: row.character_id,
     mode: row.mode,
-    state: JSON.parse(row.state),
+    state: safeJsonParse(row.state, {}),
     turnCount: row.turn_count,
-    decisionHistory: JSON.parse(row.decision_history || '[]'),
+    decisionHistory: safeJsonParse(row.decision_history, []),
     isAlive: row.is_alive,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -104,9 +110,9 @@ export async function getCharacter(id: number): Promise<Character | null> {
     origin: row.origin,
     history: row.history,
     seenGate: row.seen_gate,
-    appearance: JSON.parse(row.appearance),
-    attributes: JSON.parse(row.attributes),
-    skills: JSON.parse(row.skills),
+    appearance: safeJsonParse(row.appearance, {}),
+    attributes: safeJsonParse(row.attributes, {}),
+    skills: safeJsonParse(row.skills, []),
     hp: row.hp,
     maxHp: row.max_hp,
     stress: row.stress,
@@ -125,9 +131,9 @@ export async function getCharacters(): Promise<Character[]> {
     origin: row.origin,
     history: row.history,
     seenGate: row.seen_gate,
-    appearance: JSON.parse(row.appearance),
-    attributes: JSON.parse(row.attributes),
-    skills: JSON.parse(row.skills),
+    appearance: safeJsonParse(row.appearance, {}),
+    attributes: safeJsonParse(row.attributes, {}),
+    skills: safeJsonParse(row.skills, []),
     hp: row.hp,
     maxHp: row.max_hp,
     stress: row.stress,
