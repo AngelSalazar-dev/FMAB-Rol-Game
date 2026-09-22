@@ -185,6 +185,7 @@ export default function GamePage() {
               onRollDice={rollDiceAndResolve}
               disabled={isLoading} 
               pendingDice={!!pendingDice}
+              diceModifier={pendingDice?.modifier ?? 0}
             />
           </section>
 

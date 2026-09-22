@@ -38,7 +38,7 @@ export function processExploration(parsed: ParsedAction, dice: DiceResult, state
       changes.environment = { terrain: newLoc?.terrain || 'urban' };
       changes.clocks = { suspicion: 1 };
       // Spawn NPCs for new location
-      changes.npcs = spawnNPCsForLocation(target, []);
+      changes.npcs = spawnNPCsForLocation(target, state.npcs);
       if (newLoc?.npcs && newLoc.npcs.length > 0) {
         details.push(`Presencias detectadas: ${newLoc.npcs.slice(0, 2).join(', ')}.`);
       }

@@ -5,11 +5,11 @@ import { applyStateChanges, getModifier, shouldRetire, isAlive, isInsane } from 
 import { addStress, reduceSanity } from '@/engine/systems/stress';
 import { addInjury, healInjury } from '@/engine/systems/health';
 import { increaseSuspicion, changeReputation } from '@/engine/systems/factions';
-import { updateLoyalty } from '@/engine/systems/companions';
+import { updateLoyalty, checkCompanionDeath } from '@/engine/systems/companions';
 import { addDecision, getRandomMoralChoice } from '@/engine/systems/morality';
 import { advanceClock, reduceClock, isClockComplete, Clock } from './clocks';
 import { processAlchemy } from '@/engine/systems/alchemy';
-import { processCombat } from '@/engine/systems/combat';
+import { processCombat, calculateDamage } from '@/engine/systems/combat';
 import { processStealth } from '@/engine/systems/stealth';
 import { processSocial } from '@/engine/systems/social';
 import { processExploration } from '@/engine/systems/exploration';
@@ -71,228 +71,33 @@ export async function processAction(input: string, state: GameState): Promise<Ga
   const attribute = getAttributeForAction(parsed, state);
   const modifier = getModifier(state, attribute);
   const dice = rollDice(modifier);
+  const mechanicalResult = dispatchAction(parsed, dice, state);
 
-  let mechanicalResult: {
-    success: boolean;
-    outcome: 'complete' | 'partial' | 'miss';
-    changes: GameStateChanges;
-    details: string[];
-  };
-
-  switch (parsed.type) {
-    case 'alchemy':
-      mechanicalResult = processAlchemy(parsed, dice, state);
-      break;
-    case 'combat':
-      mechanicalResult = processCombat(parsed, dice, state);
-      break;
-    case 'stealth':
-      mechanicalResult = processStealth(parsed, dice, state);
-      break;
-    case 'social':
-      mechanicalResult = processSocial(parsed, dice, state);
-      break;
-    case 'exploration':
-      mechanicalResult = processExploration(parsed, dice, state);
-      break;
-    case 'inventory':
-      mechanicalResult = processInventory(parsed, dice, state);
-      break;
-    case 'rest':
-      mechanicalResult = processRest(parsed, dice, state);
-      break;
-    case 'moral':
-      mechanicalResult = processMoralResponse(parsed, state);
-      break;
-    default:
-      mechanicalResult = {
-        success: false,
-        outcome: 'miss',
-        changes: {},
-        details: ['Acción no reconocida. Sé más específico.'],
-      };
-  }
-
-  let newState = applyStateChanges(state, mechanicalResult.changes as Partial<GameState>);
-
-  if (mechanicalResult.changes.stress) {
-    newState.stress = addStress(newState.stress, mechanicalResult.changes.stress);
-  }
-  if (mechanicalResult.changes.sanity) {
-    newState.sanity = reduceSanity(newState.sanity, mechanicalResult.changes.sanity);
-  }
-  if (mechanicalResult.changes.injury) {
-    newState.health = addInjury(newState.health, mechanicalResult.changes.injury);
-  }
-  if (mechanicalResult.changes.heal) {
-    newState.health = {
-      ...newState.health,
-      current: Math.min(newState.health.max, newState.health.current + mechanicalResult.changes.heal),
-    };
-  }
-  if (mechanicalResult.changes.health) {
-    newState.health = mechanicalResult.changes.health;
-  }
-  if (mechanicalResult.changes.suspicion) {
-    newState.factions = increaseSuspicion(newState.factions, mechanicalResult.changes.suspicion);
-  }
-  if (mechanicalResult.changes.reputation) {
-    newState.factions = changeReputation(
-      newState.factions,
-      mechanicalResult.changes.reputation.faction as 'military' | 'ishvalan' | 'resistance' | 'state',
-      mechanicalResult.changes.reputation.amount
-    );
-  }
-  if (mechanicalResult.changes.companionLoyalty) {
-    newState.companions = newState.companions.map(c =>
-      c.id === mechanicalResult.changes.companionLoyalty!.id
-        ? updateLoyalty(c, mechanicalResult.changes.companionLoyalty!.change)
-        : c
-    );
-  }
-  if (mechanicalResult.changes.morality) {
-    newState.morality = addDecision(newState.morality, mechanicalResult.changes.morality);
-  }
-
-  if (mechanicalResult.changes.clocks) {
-    for (const [clockId, segments] of Object.entries(mechanicalResult.changes.clocks)) {
-      const clockIndex = newState.clocks.findIndex(c => c.id === clockId);
-      if (clockIndex !== -1) {
-        if (segments >= 0) {
-          newState.clocks[clockIndex] = advanceClock(newState.clocks[clockIndex], segments);
-        } else {
-          newState.clocks[clockIndex] = reduceClock(newState.clocks[clockIndex], Math.abs(segments));
-        }
-        // Check for clock completion
-        if (isClockComplete(newState.clocks[clockIndex])) {
-          handleClockCompletion(newState, newState.clocks[clockIndex], mechanicalResult.details);
-        }
-      }
-    }
-  }
-
-  if (mechanicalResult.changes.inventory) {
-    const inv = mechanicalResult.changes.inventory;
-    if (inv.add) {
-      newState.inventory = addItem(newState, inv.add).inventory;
-    }
-    if (inv.remove) {
-      newState.inventory = removeItem(newState, inv.remove.name, inv.remove.quantity).inventory;
-    }
-  }
-
-  if (mechanicalResult.changes.environment) {
-    const env = mechanicalResult.changes.environment;
-    if (env.terrain) newState.environment.terrain = env.terrain as typeof newState.environment.terrain;
-  }
-
-  if (mechanicalResult.changes.timeAdvanced) {
-    newState = advanceTime(newState);
-  }
-
-  // Organic moral dilemmas based on context
-  const moralPrompt = generateMoralPrompt(newState, parsed, mechanicalResult);
-  if (moralPrompt) {
-    mechanicalResult.details.push(moralPrompt);
-  }
-
-  if (mechanicalResult.changes.combat) {
-    const combat = mechanicalResult.changes.combat;
-    if (combat.damage > 0 && newState.npcs.length > 0) {
-      const targetIndex = newState.npcs.findIndex(n => n.isHostile);
-      if (targetIndex !== -1) {
-        const target = newState.npcs[targetIndex];
-        const actualDamage = Math.max(1, combat.damage - target.armor);
-        target.hp -= actualDamage;
-        mechanicalResult.details.push(`${target.name} recibe ${actualDamage} de daño (HP: ${Math.max(0, target.hp)}/${target.maxHp}).`);
-        if (target.hp <= 0) {
-          mechanicalResult.details.push(`¡${target.name} ha sido derrotado!`);
-          newState.npcs.splice(targetIndex, 1);
-        }
-      }
-    }
-
-    // Companion combat assistance
-    if (newState.companions.length > 0 && combat.damage > 0) {
-      for (const companion of newState.companions) {
-        if (companion.loyalty > 40 && Math.random() < 0.5) {
-          const companionDamage = Math.floor(5 + companion.loyalty / 10);
-          if (newState.npcs.length > 0) {
-            const targetIdx = newState.npcs.findIndex(n => n.isHostile);
-            if (targetIdx !== -1) {
-              const t = newState.npcs[targetIdx];
-              const dmg = Math.max(1, companionDamage - t.armor);
-              t.hp -= dmg;
-              mechanicalResult.details.push(`${companion.name} ataca y causa ${dmg} de daño adicional.`);
-              if (t.hp <= 0) {
-                mechanicalResult.details.push(`¡${t.name} es derrotado por ${companion.name}!`);
-                newState.npcs.splice(targetIdx, 1);
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  const narrative = await generateNarrative({
-    action: input,
-    parsed,
-    dice,
-    mechanicalResult,
-    state: newState,
-  });
-
-  return {
-    narrative,
-    stateChanges: { ...newState },
-    diceResult: dice,
-    actionType: parsed.type,
-    outcome: mechanicalResult.outcome,
-    mechanicalDetails: mechanicalResult.details,
-  };
+  return resolveMechanicalResult(parsed, dice, state, mechanicalResult, input);
 }
 
 export function formatDiceResult(dice: DiceResult): string {
   return `${dice.roll1} + ${dice.roll2} ${dice.modifier >= 0 ? '+' : ''}${dice.modifier} = ${dice.total} (${getOutcomeLabel(dice.outcome)})`;
 }
 
-function generateMoralPrompt(state: GameState, parsed: any, result: any): string | null {
-  // Trigger 1: After combat with low-HP enemy (show mercy?)
-  if (parsed.type === 'combat' && result.outcome === 'complete' && state.npcs.length > 0) {
-    const target = state.npcs.find(n => n.isHostile && n.hp > 0 && n.hp < n.maxHp * 0.3);
-    if (target && Math.random() < 0.4) {
-      return `⚖️ DILEMA: ${target.name} está herido y vulnerable. ¿Le perdonas la vida? (Responde "perdonar" o "ejecutar")`;
-    }
-  }
+// Resolve action with manual dice result
+export async function resolveDiceAction(
+  pendingDice: { action: string; parsed: ParsedAction; modifier: number; state: GameState },
+  diceResult: DiceResult,
+  state: GameState
+): Promise<GameResponse> {
+  const { parsed, modifier } = pendingDice;
+  
+  const dice: DiceResult = {
+    ...diceResult,
+    modifier,
+    total: diceResult.roll1 + diceResult.roll2 + modifier,
+    outcome: (diceResult.roll1 + diceResult.roll2 + modifier >= 10) ? 'complete' :
+             (diceResult.roll1 + diceResult.roll2 + modifier >= 7) ? 'partial' : 'miss',
+  };
 
-  // Trigger 2: High suspicion + social interaction
-  if (parsed.type === 'social' && state.factions.suspicion > 60 && Math.random() < 0.3) {
-    return `⚖️ DILEMA: La sospecha es alta. ¿Mentir para protegerte o decir la verdad arriesgándote? (Responde "mentir" o "verdad")`;
-  }
-
-  // Trigger 3: Found item + companion needs help
-  if (parsed.type === 'inventory' && state.companions.length > 0) {
-    const hurtCompanion = state.companions.find(c => c.loyalty < 50);
-    if (hurtCompanion && Math.random() < 0.3) {
-      return `⚖️ DILEMA: ${hurtCompanion.name} necesita ayuda pero tienes algo importante. ¿Compartir o guardar? (Responde "compartir" o "guardar")`;
-    }
-  }
-
-  // Trigger 4: Low sanity + exploration (temptation)
-  if (parsed.type === 'exploration' && state.sanity.current < 30 && Math.random() < 0.4) {
-    return `⚖️ DILEMA: Tu cordura es baja. Sientes una extraña tentación en esta zona. ¿Resistir o ceder? (Responde "resistir" o "ceder")`;
-  }
-
-  // Trigger 5: Morality drift warning
-  if (state.morality.karma < -50 && Math.random() < 0.2) {
-    return `⚖️ SEÑAL: Tu camino se oscurece. El karma es ${state.morality.karma}. Considera tus acciones.`;
-  }
-  if (state.morality.karma > 50 && Math.random() < 0.2) {
-    return `⚖️ SEÑAL: Tu camino es noble. El karma es ${state.morality.karma}. Sigue así.`;
-  }
-
-  return null;
+  const mechanicalResult = dispatchAction(parsed, dice, state);
+  return resolveMechanicalResult(parsed, dice, state, mechanicalResult, pendingDice.action);
 }
 
 function processMoralResponse(parsed: ParsedAction, state: GameState) {
@@ -359,75 +164,72 @@ function processMoralResponse(parsed: ParsedAction, state: GameState) {
   return { success: true, outcome: 'complete' as const, changes, details };
 }
 
-// Resolve action with manual dice result
-export async function resolveDiceAction(
-  pendingDice: { action: string; parsed: ParsedAction; modifier: number; state: GameState },
-  diceResult: DiceResult,
-  state: GameState
-): Promise<GameResponse> {
-  const { parsed, modifier } = pendingDice;
-  
-  // Use the user's dice result
-  const dice: DiceResult = {
-    ...diceResult,
-    modifier,
-    total: diceResult.roll1 + diceResult.roll2 + modifier,
-    outcome: (diceResult.roll1 + diceResult.roll2 + modifier >= 10) ? 'complete' :
-             (diceResult.roll1 + diceResult.roll2 + modifier >= 7) ? 'partial' : 'miss',
-  };
-
-  let mechanicalResult: {
-    success: boolean;
-    outcome: 'complete' | 'partial' | 'miss';
-    changes: GameStateChanges;
-    details: string[];
-  };
-
-  switch (parsed.type) {
-    case 'alchemy':
-      mechanicalResult = processAlchemy(parsed, dice, state);
-      break;
-    case 'combat':
-      mechanicalResult = processCombat(parsed, dice, state);
-      break;
-    case 'stealth':
-      mechanicalResult = processStealth(parsed, dice, state);
-      break;
-    case 'social':
-      mechanicalResult = processSocial(parsed, dice, state);
-      break;
-    case 'exploration':
-      mechanicalResult = processExploration(parsed, dice, state);
-      break;
-    case 'inventory':
-      mechanicalResult = processInventory(parsed, dice, state);
-      break;
-    case 'rest':
-      mechanicalResult = processRest(parsed, dice, state);
-      break;
-    case 'moral':
-      mechanicalResult = processMoralResponse(parsed, state);
-      break;
-    default:
-      mechanicalResult = {
-        success: false,
-        outcome: 'miss',
-        changes: {},
-        details: ['Acción no reconocida.'],
-      };
+function generateMoralPrompt(state: GameState, parsed: ParsedAction, result: MechanicalResult): string | null {
+  if (parsed.type === 'combat' && result.outcome === 'complete' && state.npcs.length > 0) {
+    const target = state.npcs.find(n => n.isHostile && n.hp > 0 && n.hp < n.maxHp * 0.3);
+    if (target && Math.random() < 0.4) {
+      return `⚖️ DILEMA: ${target.name} está herido y vulnerable. ¿Le perdonas la vida? (Responde "perdonar" o "ejecutar")`;
+    }
   }
+  if (parsed.type === 'social' && state.factions.suspicion > 60 && Math.random() < 0.3) {
+    return `⚖️ DILEMA: La sospecha es alta. ¿Mentir para protegerte o decir la verdad arriesgándote? (Responde "mentir" o "verdad")`;
+  }
+  if (parsed.type === 'inventory' && state.companions.length > 0) {
+    const hurtCompanion = state.companions.find(c => c.loyalty < 50);
+    if (hurtCompanion && Math.random() < 0.3) {
+      return `⚖️ DILEMA: ${hurtCompanion.name} necesita ayuda pero tienes algo importante. ¿Compartir o guardar? (Responde "compartir" o "guardar")`;
+    }
+  }
+  if (parsed.type === 'exploration' && state.sanity.current < 30 && Math.random() < 0.4) {
+    return `⚖️ DILEMA: Tu cordura es baja. Sientes una extraña tentación en esta zona. ¿Resistir o ceder? (Responde "resistir" o "ceder")`;
+  }
+  if (state.morality.karma < -50 && Math.random() < 0.2) {
+    return `⚖️ SEÑAL: Tu camino se oscurece. El karma es ${state.morality.karma}. Considera tus acciones.`;
+  }
+  if (state.morality.karma > 50 && Math.random() < 0.2) {
+    return `⚖️ SEÑAL: Tu camino es noble. El karma es ${state.morality.karma}. Sigue así.`;
+  }
+  return null;
+}
 
+type MechanicalResult = {
+  success: boolean;
+  outcome: 'complete' | 'partial' | 'miss';
+  changes: GameStateChanges;
+  details: string[];
+};
+
+function dispatchAction(parsed: ParsedAction, dice: DiceResult, state: GameState): MechanicalResult {
+  switch (parsed.type) {
+    case 'alchemy': return processAlchemy(parsed, dice, state);
+    case 'combat': return processCombat(parsed, dice, state);
+    case 'stealth': return processStealth(parsed, dice, state);
+    case 'social': return processSocial(parsed, dice, state);
+    case 'exploration': return processExploration(parsed, dice, state);
+    case 'inventory': return processInventory(parsed, dice, state);
+    case 'rest': return processRest(parsed, dice, state);
+    case 'moral': return processMoralResponse(parsed, state);
+    default: return { success: false, outcome: 'miss', changes: {}, details: ['Acción no reconocida. Sé más específico.'] };
+  }
+}
+
+async function resolveMechanicalResult(
+  parsed: ParsedAction,
+  dice: DiceResult,
+  state: GameState,
+  mechanicalResult: MechanicalResult,
+  actionText: string,
+): Promise<GameResponse> {
   let newState = applyStateChanges(state, mechanicalResult.changes as Partial<GameState>);
 
-  // Apply all state changes (same as processAction)
   if (mechanicalResult.changes.stress) {
     newState.stress = addStress(newState.stress, mechanicalResult.changes.stress);
   }
   if (mechanicalResult.changes.sanity) {
     newState.sanity = reduceSanity(newState.sanity, mechanicalResult.changes.sanity);
   }
-  if (mechanicalResult.changes.injury) {
-    newState.health = addInjury(newState.health, mechanicalResult.changes.injury);
+  if (mechanicalResult.changes.health) {
+    newState.health = { ...newState.health, current: mechanicalResult.changes.health.current ?? newState.health.current };
   }
   if (mechanicalResult.changes.heal) {
     newState.health = {
@@ -435,8 +237,8 @@ export async function resolveDiceAction(
       current: Math.min(newState.health.max, newState.health.current + mechanicalResult.changes.heal),
     };
   }
-  if (mechanicalResult.changes.health) {
-    newState.health = mechanicalResult.changes.health;
+  if (mechanicalResult.changes.injury) {
+    newState.health = addInjury(newState.health, mechanicalResult.changes.injury);
   }
   if (mechanicalResult.changes.suspicion) {
     newState.factions = increaseSuspicion(newState.factions, mechanicalResult.changes.suspicion);
@@ -454,10 +256,12 @@ export async function resolveDiceAction(
         ? updateLoyalty(c, mechanicalResult.changes.companionLoyalty!.change)
         : c
     );
+    newState = checkCompanionDeath(newState);
   }
   if (mechanicalResult.changes.morality) {
     newState.morality = addDecision(newState.morality, mechanicalResult.changes.morality);
   }
+
   if (mechanicalResult.changes.clocks) {
     for (const [clockId, segments] of Object.entries(mechanicalResult.changes.clocks)) {
       const clockIndex = newState.clocks.findIndex(c => c.id === clockId);
@@ -473,6 +277,7 @@ export async function resolveDiceAction(
       }
     }
   }
+
   if (mechanicalResult.changes.inventory) {
     const inv = mechanicalResult.changes.inventory;
     if (inv.add) {
@@ -482,15 +287,16 @@ export async function resolveDiceAction(
       newState.inventory = removeItem(newState, inv.remove.name, inv.remove.quantity).inventory;
     }
   }
+
   if (mechanicalResult.changes.environment) {
     const env = mechanicalResult.changes.environment;
     if (env.terrain) newState.environment.terrain = env.terrain as typeof newState.environment.terrain;
   }
+
   if (mechanicalResult.changes.timeAdvanced) {
     newState = advanceTime(newState);
   }
 
-  // Companion combat assistance
   if (mechanicalResult.changes.combat) {
     const combat = mechanicalResult.changes.combat;
     if (combat.damage > 0 && newState.npcs.length > 0) {
@@ -498,14 +304,33 @@ export async function resolveDiceAction(
       if (targetIndex !== -1) {
         const target = newState.npcs[targetIndex];
         const actualDamage = Math.max(1, combat.damage - target.armor);
-        target.hp -= actualDamage;
-        mechanicalResult.details.push(`${target.name} recibe ${actualDamage} de daño.`);
-        if (target.hp <= 0) {
+        const newHp = target.hp - actualDamage;
+        newState.npcs = [...newState.npcs];
+        newState.npcs[targetIndex] = { ...target, hp: newHp };
+        mechanicalResult.details.push(`${target.name} recibe ${actualDamage} de daño (HP: ${Math.max(0, newHp)}/${target.maxHp}).`);
+        if (newHp <= 0) {
           mechanicalResult.details.push(`¡${target.name} ha sido derrotado!`);
-          newState.npcs.splice(targetIndex, 1);
+          newState.npcs = newState.npcs.filter((_, i) => i !== targetIndex);
         }
       }
     }
+
+    if (newState.npcs.length > 0 && combat.damage === 0) {
+      const hostileIdx = newState.npcs.findIndex(n => n.isHostile);
+      if (hostileIdx !== -1 && Math.random() < 0.5) {
+        const enemy = newState.npcs[hostileIdx];
+        const counterDice = rollDice(0);
+        const enemyWeapon = { name: enemy.weapon || 'Garras', damage: enemy.damage || 15, range: 'melee' as const, type: 'physical' as const };
+        const counterDamage = calculateDamage(enemyWeapon, counterDice, 'melee');
+        if (counterDamage > 0) {
+          newState.health = { ...newState.health, current: Math.max(0, newState.health.current - counterDamage) };
+          mechanicalResult.details.push(`⚡ ${enemy.name} contraataca y causa ${counterDamage} de daño.`);
+        } else {
+          mechanicalResult.details.push(`${enemy.name} intenta contraatacar pero falla.`);
+        }
+      }
+    }
+
     if (newState.companions.length > 0 && combat.damage > 0) {
       for (const companion of newState.companions) {
         if (companion.loyalty > 40 && Math.random() < 0.5) {
@@ -515,11 +340,13 @@ export async function resolveDiceAction(
             if (targetIdx !== -1) {
               const t = newState.npcs[targetIdx];
               const dmg = Math.max(1, companionDamage - t.armor);
-              t.hp -= dmg;
+              const newT = { ...t, hp: t.hp - dmg };
+              newState.npcs = [...newState.npcs];
+              newState.npcs[targetIdx] = newT;
               mechanicalResult.details.push(`${companion.name} ataca y causa ${dmg} de daño adicional.`);
-              if (t.hp <= 0) {
+              if (newT.hp <= 0) {
                 mechanicalResult.details.push(`¡${t.name} es derrotado por ${companion.name}!`);
-                newState.npcs.splice(targetIdx, 1);
+                newState.npcs = newState.npcs.filter((_, i) => i !== targetIdx);
               }
             }
           }
@@ -528,14 +355,13 @@ export async function resolveDiceAction(
     }
   }
 
-  // Organic moral dilemmas
   const moralPrompt = generateMoralPrompt(newState, parsed, mechanicalResult);
   if (moralPrompt) {
     mechanicalResult.details.push(moralPrompt);
   }
 
   const narrative = await generateNarrative({
-    action: pendingDice.action,
+    action: actionText,
     parsed,
     dice,
     mechanicalResult,

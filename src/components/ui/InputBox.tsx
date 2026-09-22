@@ -8,10 +8,11 @@ interface InputBoxProps {
   onRollDice?: (result: DiceResult) => void;
   disabled?: boolean;
   pendingDice?: boolean;
+  diceModifier?: number;
   placeholder?: string;
 }
 
-export function InputBox({ onSubmit, onRollDice, disabled, pendingDice, placeholder = 'Escribe tu acción...' }: InputBoxProps) {
+export function InputBox({ onSubmit, onRollDice, disabled, pendingDice, diceModifier = 0, placeholder = 'Escribe tu acción...' }: InputBoxProps) {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -65,12 +66,13 @@ export function InputBox({ onSubmit, onRollDice, disabled, pendingDice, placehol
         clearInterval(interval);
         const r1 = Math.floor(Math.random() * 6) + 1;
         const r2 = Math.floor(Math.random() * 6) + 1;
+        const total = r1 + r2 + diceModifier;
         const result: DiceResult = {
           roll1: r1,
           roll2: r2,
-          modifier: 0,
-          total: r1 + r2,
-          outcome: (r1 + r2 >= 10) ? 'complete' : (r1 + r2 >= 7) ? 'partial' : 'miss',
+          modifier: diceModifier,
+          total,
+          outcome: (total >= 10) ? 'complete' : (total >= 7) ? 'partial' : 'miss',
         };
         setDiceResult(result);
         setRolling(false);
@@ -119,8 +121,11 @@ export function InputBox({ onSubmit, onRollDice, disabled, pendingDice, placehol
               {diceResult && (
                 <div className="text-center space-y-2">
                   <div className="font-mono text-lg text-fmab-parchment">
-                    {diceResult.roll1} + {diceResult.roll2} = <span className="text-fmab-gold font-bold">{diceResult.total}</span>
+                    {diceResult.roll1} + {diceResult.roll2}{diceModifier !== 0 ? ` ${diceModifier >= 0 ? '+' : ''}${diceModifier}` : ''} = <span className="text-fmab-gold font-bold">{diceResult.total}</span>
                   </div>
+                  {diceModifier !== 0 && (
+                    <div className="text-xs text-fmab-steel">Modificador de atributo: {diceModifier >= 0 ? '+' : ''}{diceModifier}</div>
+                  )}
                   <div className={`font-serif text-xl font-bold ${
                     diceResult.outcome === 'complete' ? 'text-green-400' :
                     diceResult.outcome === 'partial' ? 'text-yellow-400' : 'text-red-400'

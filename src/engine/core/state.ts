@@ -94,7 +94,9 @@ export function applyStateChanges(state: GameState, changes: Partial<GameState>)
     environment: c.environment ? { ...state.environment, ...c.environment } : state.environment,
     morality: c.morality ? { ...state.morality, ...(typeof c.morality === 'object' && !Array.isArray(c.morality) ? c.morality : {}) } : state.morality,
     character: c.character ? { ...state.character, ...c.character } : state.character,
-  };
+    npcs: c.npcs !== undefined ? [...c.npcs] : state.npcs,
+    stealth: c.stealth !== undefined ? { ...(state.stealth || {}), ...c.stealth } : state.stealth,
+  } as GameState;
 }
 
 export function getModifier(state: GameState, attribute: keyof Character['attributes']): number {
