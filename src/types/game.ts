@@ -204,6 +204,13 @@ export interface DiceResult {
   outcome: 'complete' | 'partial' | 'miss';
 }
 
+export interface PendingDice {
+  action: string;
+  parsed: ParsedAction;
+  modifier: number;
+  state: GameState;
+}
+
 export interface AIResponse {
   narrative: string;
   stateChanges: Partial<GameState>;

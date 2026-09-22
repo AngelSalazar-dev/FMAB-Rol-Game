@@ -290,6 +290,12 @@ CÓMO ESCRIBIR:
 - Si hay enemigos, describe qué hacen.
 - Termina con una frase que deje claro qué pasó.
 
+CUÁNDO PEDIR DADOS:
+- Al final de tu narrativa, si la acción requiere una tirada, termina con "🎲 Tira los dados."
+- Ejemplo: "Te acercas al guardia. 🎲 Tira los dados."
+- Solo pide dados para acciones que requieran suerte (combate, sigilo, alquimia, social).
+- NO pidas dados para acciones automáticas (caminar, mirar, hablar sin riesgo).
+
 EJEMPLO BIEN:
 "Transmutas el suelo y se levanta una pared de metal. La quemadura en tu brazo arde, pero aguantas. Alguien vio las chispas desde la calle."
 

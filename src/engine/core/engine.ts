@@ -1,4 +1,4 @@
-import type { GameState, ParsedAction, DiceResult, GameStateChanges } from '@/types/game';
+import type { GameState, ParsedAction, DiceResult, GameStateChanges, PendingDice } from '@/types/game';
 import { rollDice, getOutcomeLabel } from './dice';
 import { parseAction, getAttributeForAction } from './input';
 import { applyStateChanges, getModifier, shouldRetire, isAlive, isInsane } from './state';
@@ -25,6 +25,33 @@ export interface GameResponse {
   actionType: string;
   outcome: 'complete' | 'partial' | 'miss';
   mechanicalDetails: string[];
+}
+
+function handleClockCompletion(state: GameState, clock: Clock, details: string[]) {
+  switch (clock.id) {
+    case 'suspicion':
+      details.push('⚠️ ¡SOSPECHA MÁXIMA! La Policía Militar te busca activamente.');
+      state.factions.suspicion = 100;
+      break;
+    case 'disease':
+      details.push('☠️ ¡INFECCIÓN CRÍTICA! Una herida no tratada se vuelve séptica.');
+      state.health.current = Math.max(1, state.health.current - 20);
+      break;
+    case 'consequence':
+      details.push('💥 ¡CONSECUENCIAS EN CASCADA! Algo terrible sucede.');
+      state.stress = { ...state.stress, current: Math.min(state.stress.max, state.stress.current + 30) };
+      break;
+    case 'trust':
+      details.push('💔 ¡CONFIANZA ROTA! Un compañero te abandona.');
+      if (state.companions.length > 0) {
+        const leaving = state.companions[0];
+        state.companions = state.companions.slice(1);
+        details.push(`${leaving.name} se ha ido.`);
+      }
+      break;
+  }
+  const idx = state.clocks.findIndex(c => c.id === clock.id);
+  if (idx !== -1) state.clocks[idx] = { ...clock, filled: 0 };
 }
 
 export async function processAction(input: string, state: GameState): Promise<GameResponse> {
@@ -142,34 +169,6 @@ export async function processAction(input: string, state: GameState): Promise<Ga
         }
       }
     }
-  }
-
-  function handleClockCompletion(state: GameState, clock: Clock, details: string[]) {
-    switch (clock.id) {
-      case 'suspicion':
-        details.push('⚠️ ¡SOSPECHA MÁXIMA! La Policía Militar te busca activamente.');
-        state.factions.suspicion = 100;
-        break;
-      case 'disease':
-        details.push('☠️ ¡INFECCIÓN CRÍTICA! Una herida no tratada se vuelve séptica.');
-        state.health.current = Math.max(1, state.health.current - 20);
-        break;
-      case 'consequence':
-        details.push('💥 ¡CONSECUENCIAS EN CASCADA! Algo terrible sucede.');
-        state.stress = { ...state.stress, current: Math.min(state.stress.max, state.stress.current + 30) };
-        break;
-      case 'trust':
-        details.push('💔 ¡CONFIANZA ROTA! Un compañero te abandona.');
-        if (state.companions.length > 0) {
-          const leaving = state.companions[0];
-          state.companions = state.companions.slice(1);
-          details.push(`${leaving.name} se ha ido.`);
-        }
-        break;
-    }
-    // Reset clock after completion
-    const idx = state.clocks.findIndex(c => c.id === clock.id);
-    if (idx !== -1) state.clocks[idx] = { ...clock, filled: 0 };
   }
 
   if (mechanicalResult.changes.inventory) {
@@ -358,4 +357,197 @@ function processMoralResponse(parsed: ParsedAction, state: GameState) {
   }
 
   return { success: true, outcome: 'complete' as const, changes, details };
+}
+
+// Resolve action with manual dice result
+export async function resolveDiceAction(
+  pendingDice: { action: string; parsed: ParsedAction; modifier: number; state: GameState },
+  diceResult: DiceResult,
+  state: GameState
+): Promise<GameResponse> {
+  const { parsed, modifier } = pendingDice;
+  
+  // Use the user's dice result
+  const dice: DiceResult = {
+    ...diceResult,
+    modifier,
+    total: diceResult.roll1 + diceResult.roll2 + modifier,
+    outcome: (diceResult.roll1 + diceResult.roll2 + modifier >= 10) ? 'complete' :
+             (diceResult.roll1 + diceResult.roll2 + modifier >= 7) ? 'partial' : 'miss',
+  };
+
+  let mechanicalResult: {
+    success: boolean;
+    outcome: 'complete' | 'partial' | 'miss';
+    changes: GameStateChanges;
+    details: string[];
+  };
+
+  switch (parsed.type) {
+    case 'alchemy':
+      mechanicalResult = processAlchemy(parsed, dice, state);
+      break;
+    case 'combat':
+      mechanicalResult = processCombat(parsed, dice, state);
+      break;
+    case 'stealth':
+      mechanicalResult = processStealth(parsed, dice, state);
+      break;
+    case 'social':
+      mechanicalResult = processSocial(parsed, dice, state);
+      break;
+    case 'exploration':
+      mechanicalResult = processExploration(parsed, dice, state);
+      break;
+    case 'inventory':
+      mechanicalResult = processInventory(parsed, dice, state);
+      break;
+    case 'rest':
+      mechanicalResult = processRest(parsed, dice, state);
+      break;
+    case 'moral':
+      mechanicalResult = processMoralResponse(parsed, state);
+      break;
+    default:
+      mechanicalResult = {
+        success: false,
+        outcome: 'miss',
+        changes: {},
+        details: ['Acción no reconocida.'],
+      };
+  }
+
+  let newState = applyStateChanges(state, mechanicalResult.changes as Partial<GameState>);
+
+  // Apply all state changes (same as processAction)
+  if (mechanicalResult.changes.stress) {
+    newState.stress = addStress(newState.stress, mechanicalResult.changes.stress);
+  }
+  if (mechanicalResult.changes.sanity) {
+    newState.sanity = reduceSanity(newState.sanity, mechanicalResult.changes.sanity);
+  }
+  if (mechanicalResult.changes.injury) {
+    newState.health = addInjury(newState.health, mechanicalResult.changes.injury);
+  }
+  if (mechanicalResult.changes.heal) {
+    newState.health = {
+      ...newState.health,
+      current: Math.min(newState.health.max, newState.health.current + mechanicalResult.changes.heal),
+    };
+  }
+  if (mechanicalResult.changes.health) {
+    newState.health = mechanicalResult.changes.health;
+  }
+  if (mechanicalResult.changes.suspicion) {
+    newState.factions = increaseSuspicion(newState.factions, mechanicalResult.changes.suspicion);
+  }
+  if (mechanicalResult.changes.reputation) {
+    newState.factions = changeReputation(
+      newState.factions,
+      mechanicalResult.changes.reputation.faction as 'military' | 'ishvalan' | 'resistance' | 'state',
+      mechanicalResult.changes.reputation.amount
+    );
+  }
+  if (mechanicalResult.changes.companionLoyalty) {
+    newState.companions = newState.companions.map(c =>
+      c.id === mechanicalResult.changes.companionLoyalty!.id
+        ? updateLoyalty(c, mechanicalResult.changes.companionLoyalty!.change)
+        : c
+    );
+  }
+  if (mechanicalResult.changes.morality) {
+    newState.morality = addDecision(newState.morality, mechanicalResult.changes.morality);
+  }
+  if (mechanicalResult.changes.clocks) {
+    for (const [clockId, segments] of Object.entries(mechanicalResult.changes.clocks)) {
+      const clockIndex = newState.clocks.findIndex(c => c.id === clockId);
+      if (clockIndex !== -1) {
+        if (segments >= 0) {
+          newState.clocks[clockIndex] = advanceClock(newState.clocks[clockIndex], segments);
+        } else {
+          newState.clocks[clockIndex] = reduceClock(newState.clocks[clockIndex], Math.abs(segments));
+        }
+        if (isClockComplete(newState.clocks[clockIndex])) {
+          handleClockCompletion(newState, newState.clocks[clockIndex], mechanicalResult.details);
+        }
+      }
+    }
+  }
+  if (mechanicalResult.changes.inventory) {
+    const inv = mechanicalResult.changes.inventory;
+    if (inv.add) {
+      newState.inventory = addItem(newState, inv.add).inventory;
+    }
+    if (inv.remove) {
+      newState.inventory = removeItem(newState, inv.remove.name, inv.remove.quantity).inventory;
+    }
+  }
+  if (mechanicalResult.changes.environment) {
+    const env = mechanicalResult.changes.environment;
+    if (env.terrain) newState.environment.terrain = env.terrain as typeof newState.environment.terrain;
+  }
+  if (mechanicalResult.changes.timeAdvanced) {
+    newState = advanceTime(newState);
+  }
+
+  // Companion combat assistance
+  if (mechanicalResult.changes.combat) {
+    const combat = mechanicalResult.changes.combat;
+    if (combat.damage > 0 && newState.npcs.length > 0) {
+      const targetIndex = newState.npcs.findIndex(n => n.isHostile);
+      if (targetIndex !== -1) {
+        const target = newState.npcs[targetIndex];
+        const actualDamage = Math.max(1, combat.damage - target.armor);
+        target.hp -= actualDamage;
+        mechanicalResult.details.push(`${target.name} recibe ${actualDamage} de daño.`);
+        if (target.hp <= 0) {
+          mechanicalResult.details.push(`¡${target.name} ha sido derrotado!`);
+          newState.npcs.splice(targetIndex, 1);
+        }
+      }
+    }
+    if (newState.companions.length > 0 && combat.damage > 0) {
+      for (const companion of newState.companions) {
+        if (companion.loyalty > 40 && Math.random() < 0.5) {
+          const companionDamage = Math.floor(5 + companion.loyalty / 10);
+          if (newState.npcs.length > 0) {
+            const targetIdx = newState.npcs.findIndex(n => n.isHostile);
+            if (targetIdx !== -1) {
+              const t = newState.npcs[targetIdx];
+              const dmg = Math.max(1, companionDamage - t.armor);
+              t.hp -= dmg;
+              mechanicalResult.details.push(`${companion.name} ataca y causa ${dmg} de daño adicional.`);
+              if (t.hp <= 0) {
+                mechanicalResult.details.push(`¡${t.name} es derrotado por ${companion.name}!`);
+                newState.npcs.splice(targetIdx, 1);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Organic moral dilemmas
+  const moralPrompt = generateMoralPrompt(newState, parsed, mechanicalResult);
+  if (moralPrompt) {
+    mechanicalResult.details.push(moralPrompt);
+  }
+
+  const narrative = await generateNarrative({
+    action: pendingDice.action,
+    parsed,
+    dice,
+    mechanicalResult,
+    state: newState,
+  });
+
+  return {
+    narrative,
+    stateChanges: { ...newState },
+    diceResult: dice,
+    actionType: parsed.type,
+    outcome: mechanicalResult.outcome,
+    mechanicalDetails: mechanicalResult.details,
+  };
 }

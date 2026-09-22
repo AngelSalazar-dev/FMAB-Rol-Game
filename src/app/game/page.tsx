@@ -54,7 +54,7 @@ export default function GamePage() {
     }
   }, []);
 
-  const { state, messages, isLoading, lastDice, lastOutcome, sendAction, resetGame } = useGame(
+  const { state, messages, isLoading, lastDice, lastOutcome, pendingDice, sendAction, rollDiceAndResolve, resetGame } = useGame(
     gameState || INITIAL_STATE, 
     characterId ?? undefined,
     savedMessages
@@ -180,7 +180,12 @@ export default function GamePage() {
 
             <GameTerminal messages={messages} isTyping={isLoading} />
 
-            <InputBox onSubmit={handleAction} disabled={isLoading} />
+            <InputBox 
+              onSubmit={handleAction} 
+              onRollDice={rollDiceAndResolve}
+              disabled={isLoading} 
+              pendingDice={!!pendingDice}
+            />
           </section>
 
           <aside className="col-span-12 lg:col-span-3 space-y-4">
