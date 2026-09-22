@@ -1,17 +1,26 @@
-import Groq from 'groq-sdk';
 import OpenAI from 'openai';
+import Groq from 'groq-sdk';
 
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const OPENROUTER_MODELS = [
-  'openai/gpt-oss-120b:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
   'nvidia/nemotron-3-super-120b-a12b:free',
-  'meta-llama/llama-3.3-70b-instruct:free',
+  'nvidia/nemotron-3.5-lightning:free',
+  'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'minimax/minimax-m3:free',
+  'openrouter/free:free',
+];
+
+const GROQ_MODELS = [
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.6-27b',
+  'llama-3.3-70b-versatile',
 ];
 
 const COOLDOWN_MS = 60_000;
-const MAX_FAILS = 2;
+const MAX_FAILS = 5;
 
-type ProviderName = 'groq' | 'openrouter';
+type ProviderName = 'openrouter' | 'groq';
 
 interface ProviderStatus {
   available: boolean;
@@ -19,29 +28,24 @@ interface ProviderStatus {
   failCount: number;
 }
 
-let groqClient: Groq | null = null;
 let openrouterClient: OpenAI | null = null;
+let groqClient: Groq | null = null;
 let initialized = false;
 const status: Record<ProviderName, ProviderStatus> = {
-  groq: { available: false, cooldownUntil: 0, failCount: 0 },
   openrouter: { available: false, cooldownUntil: 0, failCount: 0 },
+  groq: { available: false, cooldownUntil: 0, failCount: 0 },
 };
 
 export function initProviders() {
   if (initialized) return;
   initialized = true;
 
-  const groqKey = process.env.GROQ_API_KEY;
   const orKey = process.env.OPENROUTER_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
 
   console.log('Initializing AI providers...');
-  console.log('GROQ_API_KEY:', groqKey ? 'Set' : 'Not set');
   console.log('OPENROUTER_API_KEY:', orKey ? 'Set' : 'Not set');
-
-  if (groqKey) {
-    groqClient = new Groq({ apiKey: groqKey });
-    status.groq.available = true;
-  }
+  console.log('GROQ_API_KEY:', groqKey ? 'Set' : 'Not set');
 
   if (orKey) {
     openrouterClient = new OpenAI({
@@ -50,11 +54,15 @@ export function initProviders() {
     });
     status.openrouter.available = true;
   }
+
+  if (groqKey) {
+    groqClient = new Groq({ apiKey: groqKey });
+    status.groq.available = true;
+  }
 }
 
 function checkCooldown(name: ProviderName): boolean {
-  const s = status[name];
-  return Date.now() < s.cooldownUntil;
+  return Date.now() < status[name].cooldownUntil;
 }
 
 function resetCooldownIfNeeded(name: ProviderName) {
@@ -145,59 +153,75 @@ function buildPrompt(context: NarrativeContext): string {
 
 export async function streamChat(messages: { role: 'system' | 'user' | 'assistant'; content: string }[]): Promise<string> {
   initProviders();
-  resetCooldownIfNeeded('groq');
   resetCooldownIfNeeded('openrouter');
+  resetCooldownIfNeeded('groq');
 
-  if (groqClient && !checkCooldown('groq')) {
-    try {
-      const stream = await groqClient.chat.completions.create({
-        model: GROQ_MODEL,
-        messages,
-        temperature: 0.7,
-        max_tokens: 2048,
-        stream: true,
-      });
-      recordSuccess('groq');
-      let fullText = '';
-      for await (const chunk of stream) {
-        const content = chunk.choices?.[0]?.delta?.content;
-        if (content) fullText += content;
-      }
-      return fullText;
-    } catch {
-      recordFailure('groq');
-    }
-  }
+  console.log('streamChat called. openrouter:', !!openrouterClient, 'groq:', !!groqClient);
 
+  // === FASE 1: OpenRouter (7 modelos free en cascada) ===
   if (openrouterClient && !checkCooldown('openrouter')) {
-    try {
-      const response = await openrouterClient.chat.completions.create({
-        model: OPENROUTER_MODELS[0],
-        messages,
-        temperature: 0.7,
-        max_tokens: 2048,
-        stream: true,
-      } as any);
-      recordSuccess('openrouter');
-      let fullText = '';
-      const stream = response as unknown as AsyncIterable<any>;
-      for await (const chunk of stream) {
-        const content = chunk.choices?.[0]?.delta?.content;
-        if (content) fullText += content;
+    for (const model of OPENROUTER_MODELS) {
+      try {
+        console.log('Trying OpenRouter (FREE):', model);
+        const response = await openrouterClient.chat.completions.create({
+          model,
+          messages,
+          temperature: 0.7,
+          max_tokens: 2048,
+          stream: true,
+        } as any);
+        recordSuccess('openrouter');
+        console.log('OpenRouter success:', model);
+        let fullText = '';
+        const stream = response as unknown as AsyncIterable<any>;
+        for await (const chunk of stream) {
+          const content = chunk.choices?.[0]?.delta?.content;
+          if (content) fullText += content;
+        }
+        console.log('OpenRouter response length:', fullText.length);
+        return fullText;
+      } catch (e: any) {
+        console.error('OpenRouter error:', model, e?.message || e);
+        recordFailure('openrouter');
       }
-      return fullText;
-    } catch {
-      recordFailure('openrouter');
     }
   }
 
-  throw new Error('Todos los providers de IA están indisponibles.');
+  // === FASE 2: Groq (3 modelos free en cascada) ===
+  if (groqClient && !checkCooldown('groq')) {
+    for (const model of GROQ_MODELS) {
+      try {
+        console.log('Trying Groq (FREE):', model);
+        const stream = await groqClient.chat.completions.create({
+          model,
+          messages,
+          temperature: 0.7,
+          max_tokens: 2048,
+          stream: true,
+        });
+        recordSuccess('groq');
+        console.log('Groq success:', model);
+        let fullText = '';
+        for await (const chunk of stream) {
+          const content = chunk.choices?.[0]?.delta?.content;
+          if (content) fullText += content;
+        }
+        console.log('Groq response length:', fullText.length);
+        return fullText;
+      } catch (e: any) {
+        console.error('Groq error:', model, e?.message || e);
+        recordFailure('groq');
+      }
+    }
+  }
+
+  throw new Error('Todos los providers de IA están agotados. Intenta de nuevo en unos minutos.');
 }
 
 export function getProviderStatus() {
   return {
-    groq: { enabled: !!groqClient, inCooldown: checkCooldown('groq') },
     openrouter: { enabled: !!openrouterClient, inCooldown: checkCooldown('openrouter') },
+    groq: { enabled: !!groqClient, inCooldown: checkCooldown('groq') },
   };
 }
 

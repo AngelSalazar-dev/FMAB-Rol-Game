@@ -15,9 +15,9 @@ export async function GET(request: Request) {
 
     const characters = await getCharacters();
     return Response.json(characters);
-  } catch (error) {
-    console.error('Error getting characters:', error);
-    return Response.json({ error: 'Error interno' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Error getting characters:', error?.message || error);
+    return Response.json({ error: 'Error interno', details: error?.message }, { status: 500 });
   }
 }
 
