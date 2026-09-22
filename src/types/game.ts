@@ -110,7 +110,20 @@ export interface Item {
   quantity: number;
   item_type: 'material' | 'weapon' | 'tool' | 'consumable' | 'key';
   properties: Record<string, any>;
+  weight?: number;
+  equipped?: boolean;
+  stowed?: boolean;
 }
+
+export type StealthState = {
+  hidden: boolean;
+  advantage?: boolean;
+  compromised?: boolean;
+  detected?: boolean;
+  detectionLevel: number;
+  turnsHidden: number;
+  lastKnownPosition?: string;
+};
 
 export interface FactionState {
   military: number;
@@ -183,7 +196,7 @@ export interface GameState {
   morality: MoralityState;
   environment: EnvironmentState;
   npcs: NPC[];
-  stealth?: { hidden: boolean; advantage?: boolean; compromised?: boolean; detected?: boolean };
+  stealth?: StealthState;
 }
 
 export interface ParsedAction {
@@ -301,7 +314,7 @@ export interface GameStateChanges {
   training?: { skill: string; bonus: number };
   money?: number;
   social?: { success: boolean; intent: string; attitude: string; conditions?: boolean };
-  stealth?: { hidden: boolean; compromised?: boolean; detected?: boolean; advantage?: boolean };
+  stealth?: StealthState;
   resistance?: { success: boolean; critical: boolean; consequenceReduced: boolean };
   exploration?: { found: boolean };
   perception?: { alert: boolean; details: string };

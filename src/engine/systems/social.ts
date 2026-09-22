@@ -1,5 +1,6 @@
 import type { GameState, ParsedAction, DiceResult, GameStateChanges } from '@/types/game';
 import { getOutcomeLabel } from '../core/dice';
+import { getFactionModifier } from './factions';
 
 export function processSocial(parsed: ParsedAction, dice: DiceResult, state: GameState) {
   const details: string[] = [];
@@ -15,8 +16,17 @@ export function processSocial(parsed: ParsedAction, dice: DiceResult, state: Gam
 
   const outcome = dice.outcome;
 
+  // Faction modifier for social interactions
+  const targetFaction = state.npcs.find(n =>
+    n.isHostile && n.faction !== 'civilian' && n.faction !== 'neutral'
+  )?.faction;
+  const factionMod = targetFaction ? getFactionModifier(targetFaction as any, state.factions) : 0;
+
   details.push(`Intención: ${intent}`);
   details.push(`Tirada: ${dice.total} (${getOutcomeLabel(outcome)})`);
+  if (factionMod !== 0) {
+    details.push(`Modificador de facción: ${factionMod >= 0 ? '+' : ''}${factionMod}`);
+  }
 
   switch (outcome) {
     case 'complete':
@@ -30,6 +40,10 @@ export function processSocial(parsed: ParsedAction, dice: DiceResult, state: Gam
           details.push('¡No tienes suficiente dinero para sobornar!');
           return { success: false, outcome: 'miss' as const, changes, details: ['No tienes dinero para sobornar.'] };
         }
+      }
+      if (intent === 'inquire') {
+        changes.investigation = { success: true, info: 'full' };
+        details.push('Obtienes información completa sobre la situación local.');
       }
       break;
     case 'partial':
@@ -45,6 +59,10 @@ export function processSocial(parsed: ParsedAction, dice: DiceResult, state: Gam
           return { success: false, outcome: 'miss' as const, changes, details: ['No tienes dinero para sobornar.'] };
         }
       }
+      if (intent === 'inquire') {
+        changes.investigation = { success: true, info: 'partial' };
+        details.push('Obtienes información fragmentada. Necesitas más tiempo.');
+      }
       break;
     case 'miss':
       details.push('Tus palabras fallan. El objetivo se ofende, desconfía o ataca.');
@@ -52,6 +70,7 @@ export function processSocial(parsed: ParsedAction, dice: DiceResult, state: Gam
       changes.stress = 10;
       changes.suspicion = 5;
       if (intent === 'intimidate') changes.suspicion = 15;
+      if (intent === 'deceive') changes.suspicion = 10;
       break;
   }
 

@@ -44,6 +44,36 @@ const COMPANION_TEMPLATES: Omit<Companion, 'id'>[] = [
   },
 ];
 
+export type CompanionRelationship = {
+  type: 'trust' | 'rivalry' | 'mentor' | 'bond' | 'tension' | 'debt';
+  with: string;
+  value: number;
+  description: string;
+};
+
+export type CompanionHook = {
+  trigger: 'low_loyalty' | 'high_loyalty' | 'injury' | 'combat' | 'location' | 'moral' | 'turn';
+  condition: string;
+  text: string;
+  mechanicalEffect?: string;
+};
+
+export const COMPANION_HOOKS: CompanionHook[] = [
+  // Alphonse
+  { trigger: 'moral', condition: 'ruthless', text: 'Alphonse duda de tus métodos. "¿Es esto lo que nos enseñó Van Hohenheim?"', mechanicalEffect: 'loyalty -10' },
+  { trigger: 'low_loyalty', condition: 'loyalty < 30', text: 'Alphonse se pregunta si tu camino es el correcto. Su armadura se siente vacía.', mechanicalEffect: 'riesgo de partida' },
+  { trigger: 'combat', condition: 'hostile_npc_faction:state', text: 'Alphonse se interpone: "¡No podemos luchar contra ellos! Son del gobierno."', mechanicalEffect: 'rechaza órdenes' },
+  // Hawkeye
+  { trigger: 'low_loyalty', condition: 'loyalty < 40', text: 'Hawkeye se mantiene profesional pero distante. Su dedicación a Mustang la-first no a ti.', mechanicalEffect: 'pierde habilidades tácticas' },
+  { trigger: 'injury', condition: 'health < 30', text: 'Hawkeye cubre tu retirada sin decir una palabra. Su mirada dice todo.', mechanicalEffect: 'ventaja en huida' },
+  // Ling
+  { trigger: 'high_loyalty', condition: 'loyalty > 80', text: '"Voy contigo, hermano. Los diez devoradores están contigo." Ling sonríe.', mechanicalEffect: '+2 combate cuerpo a cuerpo' },
+  { trigger: 'moral', condition: 'ruthless', text: 'Ling se ríe. "Me gusta tu estilo. Los débiles no sobreviven."', mechanicalEffect: 'loyalty +5' },
+  // May
+  { trigger: 'injury', condition: 'any_injury', text: 'May se acerca con su hierba xingese. "Todavía puedo curarte."', mechanicalEffect: 'curación bonus' },
+  { trigger: 'low_loyalty', condition: 'loyalty < 25', text: 'May llora en silencio. Extraña a Xiao-Mei. Quizás deba volver a Xing.', mechanicalEffect: 'pierde alquimia_xing' },
+];
+
 export function processCompanions(parsed: ParsedAction, dice: DiceResult, state: GameState) {
   const details: string[] = [];
   const changes: GameStateChanges = {};
@@ -71,7 +101,7 @@ export function processCompanions(parsed: ParsedAction, dice: DiceResult, state:
   if (lower.includes('ordeno') || lower.includes('ordena') || lower.includes('digo a')) {
     const target = extractCompanionName(lower, state);
     if (!target) {
-      details.push('¿A qué compañero ordenas?');
+      details.push('¿A qué compañía ordenas?');
       return { success: false, outcome: 'miss' as const, changes, details };
     }
 
@@ -89,6 +119,30 @@ export function processCompanions(parsed: ParsedAction, dice: DiceResult, state:
     return { success, outcome: success ? dice.outcome : 'miss' as const, changes, details };
   }
 
+  if (lower.includes('hablo') || lower.includes('pregunto') || lower.includes('converso')) {
+    const target = extractCompanionName(lower, state);
+    if (!target) {
+      details.push('¿Con quién hablas?');
+      return { success: false, outcome: 'miss' as const, changes, details };
+    }
+
+    const loyalty = target.loyalty;
+    const outcome = dice.outcome;
+
+    if (outcome === 'complete') {
+      details.push(`${target.name} comparte sus pensamientos. Lealtad +5.`);
+      changes.companionLoyalty = { id: target.id, change: 5 };
+      if (loyalty > 60) details.push('Confía en ti. Te cuenta algo personal.');
+    } else if (outcome === 'partial') {
+      details.push(`${target.name} responde con cautela. Hay cosas que no dice.`);
+      changes.companionLoyalty = { id: target.id, change: 2 };
+    } else {
+      details.push(`${target.name} se cierra. "No es asunto tuyo."`);
+      changes.companionLoyalty = { id: target.id, change: -3 };
+    }
+    return { success: outcome !== 'miss', outcome, changes, details };
+  }
+
   if (lower.includes('estado') || lower.includes('compañeros') || lower.includes('equipo')) {
     if (state.companions.length === 0) {
       details.push('No tienes compañeros.');
@@ -96,14 +150,21 @@ export function processCompanions(parsed: ParsedAction, dice: DiceResult, state:
       details.push('Compañeros:');
       state.companions.forEach(c => {
         const status = c.isAlive ? c.status : 'MUERTO';
-        details.push(`  - ${c.name}: Lealtad ${c.loyalty}, Estado: ${status}`);
+        const loyaltyBar = getLoyaltyBar(c.loyalty);
+        details.push(`  - ${c.name}: Lealtad ${loyaltyBar} ${c.loyalty}/100, Estado: ${status}`);
         if (c.personality.trauma) details.push(`    Trauma: ${c.personality.trauma}`);
+        if (c.personality.vice) details.push(`    Defecto: ${c.personality.vice}`);
       });
     }
     return { success: true, outcome: 'complete' as const, changes, details };
   }
 
   return { success: false, outcome: 'miss' as const, changes, details: ['Acción de compañeros no reconocida.'] };
+}
+
+function getLoyaltyBar(loyalty: number): string {
+  const filled = Math.round(loyalty / 10);
+  return '█'.repeat(filled) + '░'.repeat(10 - filled);
 }
 
 function extractCompanionName(input: string, state: GameState): Companion | null {
@@ -152,4 +213,56 @@ export function checkCompanionDeath(state: GameState): GameState {
   }
 
   return newState;
+}
+
+export function getActiveHooks(state: GameState): CompanionHook[] {
+  const hooks: CompanionHook[] = [];
+
+  for (const companion of state.companions) {
+    if (!companion.isAlive) continue;
+
+    // Low loyalty hooks
+    if (companion.loyalty < 30) {
+      const hook = COMPANION_HOOKS.find(h =>
+        h.trigger === 'low_loyalty' && h.condition.includes(companion.name.toLowerCase().split(' ')[0])
+      );
+      if (hook) hooks.push(hook);
+    }
+
+    // High loyalty hooks
+    if (companion.loyalty > 80) {
+      const hook = COMPANION_HOOKS.find(h =>
+        h.trigger === 'high_loyalty' && h.condition.includes(companion.name.toLowerCase().split(' ')[0])
+      );
+      if (hook) hooks.push(hook);
+    }
+
+    // Injury hooks
+    if (state.health.current < 30) {
+      const hook = COMPANION_HOOKS.find(h =>
+        h.trigger === 'injury' && h.condition.includes(companion.name.toLowerCase().split(' ')[0])
+      );
+      if (hook) hooks.push(hook);
+    }
+
+    // Moral hooks
+    if (state.morality.alignment === 'ruthless') {
+      const hook = COMPANION_HOOKS.find(h =>
+        h.trigger === 'moral' && h.condition.includes(companion.name.toLowerCase().split(' ')[0])
+      );
+      if (hook) hooks.push(hook);
+    }
+  }
+
+  return hooks;
+}
+
+export function getCompanionBonus(companion: Companion, actionType: string): number {
+  if (!companion.isAlive || companion.status !== 'active') return 0;
+  if (companion.loyalty < 20) return -1;
+
+  const hasSkill = companion.skills.some(s => s.includes(actionType));
+  if (hasSkill && companion.loyalty >= 60) return 2;
+  if (hasSkill) return 1;
+  return 0;
 }

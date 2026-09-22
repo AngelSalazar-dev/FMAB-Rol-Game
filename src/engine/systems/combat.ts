@@ -58,7 +58,7 @@ export function processCombat(parsed: ParsedAction, dice: DiceResult, state: Gam
 
   // Consume stealth after attack
   if (stealthAttack) {
-    changes.stealth = { hidden: false, advantage: false };
+    changes.stealth = { hidden: false, advantage: false, detectionLevel: 100, turnsHidden: 0 };
   }
 
   if (dice.outcome === 'miss') {

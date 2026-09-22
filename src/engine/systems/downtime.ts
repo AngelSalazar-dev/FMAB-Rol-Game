@@ -25,9 +25,13 @@ export function processRest(parsed: ParsedAction, dice: DiceResult, state: GameS
   else if (lower.includes('trabaj') || lower.includes('ganar') || lower.includes('dinero')) activity = DOWNTIME_ACTIVITIES[5];
 
   const outcome = dice.outcome;
+  const willMod = Math.floor((state.character.attributes.vol - 10) / 2);
 
   details.push(`Actividad: ${activity.name}`);
   details.push(`Tirada: ${dice.total} (${getOutcomeLabel(outcome)})`);
+  if (willMod !== 0) {
+    details.push(`Mod. Voluntad: ${willMod >= 0 ? '+' : ''}${willMod}`);
+  }
 
   switch (activity.id) {
     case 'heal':
@@ -77,14 +81,20 @@ export function processRest(parsed: ParsedAction, dice: DiceResult, state: GameS
       break;
 
     case 'train':
-      const skills = ['combate', 'alquimia', 'sigilo', 'percepción', 'social'];
-      const skill = skills[Math.floor(Math.random() * skills.length)];
+      const lowerRaw = parsed.raw.toLowerCase();
+      let skill = 'combate';
+      if (lowerRaw.includes('alquimia')) skill = 'alquimia';
+      else if (lowerRaw.includes('sigilo')) skill = 'sigilo';
+      else if (lowerRaw.includes('percepción') || lowerRaw.includes('percepcion')) skill = 'percepción';
+      else if (lowerRaw.includes('social') || lowerRaw.includes('persuadir')) skill = 'social';
+      else if (lowerRaw.includes('combate') || lowerRaw.includes('lucha')) skill = 'combate';
+
       if (outcome === 'complete') {
-        details.push(`Entrenas ${skill}. Ganas +1 en la próxima tirada relacionada.`);
-        changes.training = { skill, bonus: 1 };
+        details.push(`Entrenas ${skill}. Ganas +2 en la próxima tirada relacionada.`);
+        changes.training = { skill, bonus: 2 };
       } else if (outcome === 'partial') {
-        details.push(`Practicas ${skill}. Progreso lento.`);
-        changes.training = { skill, bonus: 0 };
+        details.push(`Practicas ${skill}. Progreso lento. +1 en la próxima tirada.`);
+        changes.training = { skill, bonus: 1 };
       } else {
         details.push('Te lesionas entrenando.');
         changes.stress = 10;
@@ -93,8 +103,18 @@ export function processRest(parsed: ParsedAction, dice: DiceResult, state: GameS
       break;
 
     case 'work':
-      const earnings = outcome === 'complete' ? 100 : outcome === 'partial' ? 50 : 10;
-      details.push(`Ganas ${earnings} cenz.`);
+      const locationEarnings: Record<string, number> = {
+        central_city: 100,
+        eastern_desert: 60,
+        northern_border: 80,
+        southern_port: 90,
+        xerxes_ruins: 30,
+        drachma_border: 70,
+        father_lair: 0,
+      };
+      const basePay = locationEarnings[state.location] || 50;
+      const earnings = outcome === 'complete' ? basePay * 2 : outcome === 'partial' ? basePay : Math.floor(basePay * 0.2);
+      details.push(`Trabajas en ${state.location}. Ganas ${earnings} cenz.`);
       changes.money = earnings;
       break;
   }
