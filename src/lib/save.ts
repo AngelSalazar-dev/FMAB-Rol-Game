@@ -9,13 +9,16 @@ function safeJsonParse(val: any, fallback: any = null) {
   try { return JSON.parse(val); } catch { return fallback; }
 }
 
-export async function saveGame(state: GameState, characterId: number): Promise<SaveData> {
+type GameMessage = { role: 'user' | 'assistant'; content: string };
+
+export async function saveGame(state: GameState, characterId: number, messages: GameMessage[] = []): Promise<SaveData> {
   const save = {
     character_id: characterId,
     mode: state.mode,
     state: JSON.stringify(state),
     turn_count: state.turn,
     decision_history: JSON.stringify(state.morality.decisions),
+    messages: JSON.stringify(messages),
     is_alive: state.health.current > 0,
   };
 
@@ -28,6 +31,7 @@ export async function saveGame(state: GameState, characterId: number): Promise<S
     state,
     turnCount: state.turn,
     decisionHistory: state.morality.decisions,
+    messages,
     isAlive: state.health.current > 0,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -47,6 +51,7 @@ export async function loadGame(saveId: number): Promise<SaveData | null> {
     state: safeJsonParse(row.state, {}),
     turnCount: row.turn_count,
     decisionHistory: safeJsonParse(row.decision_history, []),
+    messages: safeJsonParse(row.messages, []),
     isAlive: row.is_alive,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -66,6 +71,7 @@ export async function getSaves(characterId: number): Promise<SaveData[]> {
     state: safeJsonParse(row.state, {}),
     turnCount: row.turn_count,
     decisionHistory: safeJsonParse(row.decision_history, []),
+    messages: safeJsonParse(row.messages, []),
     isAlive: row.is_alive,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

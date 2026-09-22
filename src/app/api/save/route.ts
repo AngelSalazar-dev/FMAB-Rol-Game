@@ -3,13 +3,13 @@ import type { GameState } from '@/types/game';
 
 export async function POST(request: Request) {
   try {
-    const { state, characterId } = await request.json();
+    const { state, characterId, messages } = await request.json();
 
     if (!state || !characterId) {
       return Response.json({ error: 'Estado y characterId requeridos' }, { status: 400 });
     }
 
-    const save = await saveGame(state as GameState, characterId);
+    const save = await saveGame(state as GameState, characterId, messages || []);
     return Response.json(save);
   } catch (error) {
     console.error('Error saving game:', error);

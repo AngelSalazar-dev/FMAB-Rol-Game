@@ -11,10 +11,14 @@ import { DiceRoll } from '@/components/effects/DiceRoll';
 import type { GameState, DiceResult } from '@/types/game';
 import { INITIAL_STATE, createInitialState } from '@/engine/core/state';
 
+type GameMessage = { role: 'user' | 'assistant'; content: string };
+
 export default function GamePage() {
   const [showDice, setShowDice] = useState<DiceResult | null>(null);
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [savedMessages, setSavedMessages] = useState<GameMessage[]>([]);
+  const [isLoadingSave, setIsLoadingSave] = useState(true);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -22,18 +26,39 @@ export default function GamePage() {
     if (id) {
       const numId = parseInt(id);
       setCharacterId(numId);
-      fetch(`/api/characters?id=${numId}`)
-        .then(res => res.json())
-        .then(character => {
-          if (character && !character.error) {
+      
+      // Load character and latest save
+      Promise.all([
+        fetch(`/api/characters?id=${numId}`).then(res => res.json()),
+        fetch(`/api/save?characterId=${numId}`).then(res => res.json()),
+      ]).then(([character, saves]) => {
+        if (character && !character.error) {
+          // Check if there's a saved game
+          if (saves && saves.length > 0) {
+            const latestSave = saves[0];
+            if (latestSave.state && latestSave.state.character) {
+              setGameState(latestSave.state);
+              setSavedMessages(latestSave.messages || []);
+            } else {
+              setGameState(createInitialState(character));
+            }
+          } else {
             setGameState(createInitialState(character));
           }
-        })
-        .catch(err => console.error('Error loading character:', err));
+        }
+        setIsLoadingSave(false);
+      }).catch(err => {
+        console.error('Error loading game:', err);
+        setIsLoadingSave(false);
+      });
     }
   }, []);
 
-  const { state, messages, isLoading, lastDice, lastOutcome, sendAction, resetGame } = useGame(gameState || INITIAL_STATE, characterId ?? undefined);
+  const { state, messages, isLoading, lastDice, lastOutcome, sendAction, resetGame } = useGame(
+    gameState || INITIAL_STATE, 
+    characterId ?? undefined,
+    savedMessages
+  );
 
   useEffect(() => {
     if (lastDice) {
@@ -45,6 +70,14 @@ export default function GamePage() {
   const handleAction = (input: string) => {
     sendAction(input);
   };
+
+  if (isLoadingSave) {
+    return (
+      <div className="min-h-screen bg-fmab-dark flex items-center justify-center">
+        <div className="text-fmab-gold font-serif text-xl animate-pulse">Cargando partida...</div>
+      </div>
+    );
+  }
 
   const getLocationName = (loc: string) => {
     const names: Record<string, string> = {

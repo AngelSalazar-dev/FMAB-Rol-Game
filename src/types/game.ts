@@ -264,6 +264,7 @@ export interface SaveData {
   state: GameState;
   turnCount: number;
   decisionHistory: Decision[];
+  messages: { role: 'user' | 'assistant'; content: string }[];
   isAlive: boolean;
   createdAt: Date;
   updatedAt: Date;

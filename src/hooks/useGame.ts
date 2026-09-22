@@ -4,14 +4,18 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { GameState, DiceResult } from '@/types/game';
 import { INITIAL_STATE } from '@/engine/core/state';
 
-export function useGame(initialState?: GameState, characterId?: number) {
+type GameMessage = { role: 'user' | 'assistant'; content: string };
+
+export function useGame(initialState?: GameState, characterId?: number, initialMessages?: GameMessage[]) {
   const [state, setState] = useState<GameState>(initialState || INITIAL_STATE);
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [messages, setMessages] = useState<GameMessage[]>(initialMessages || []);
   const [isLoading, setIsLoading] = useState(false);
   const [lastDice, setLastDice] = useState<DiceResult | null>(null);
   const [lastOutcome, setLastOutcome] = useState<'complete' | 'partial' | 'miss' | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   useEffect(() => {
     if (initialState && initialState.character.id !== 0 && initialState.character.id !== state.character.id) {
@@ -19,13 +23,19 @@ export function useGame(initialState?: GameState, characterId?: number) {
     }
   }, [initialState?.character?.id]);
 
-  const saveGame = useCallback(async (gameState: GameState) => {
+  useEffect(() => {
+    if (initialMessages && initialMessages.length > 0 && messages.length === 0) {
+      setMessages(initialMessages);
+    }
+  }, [initialMessages]);
+
+  const saveGame = useCallback(async (gameState: GameState, currentMessages: GameMessage[]) => {
     if (!characterId) return;
     try {
       await fetch('/api/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ characterId, state: gameState }),
+        body: JSON.stringify({ characterId, state: gameState, messages: currentMessages }),
       });
     } catch (e) {
       console.error('Error saving game:', e);
@@ -36,7 +46,9 @@ export function useGame(initialState?: GameState, characterId?: number) {
     if (!input.trim() || isLoading) return;
 
     setIsLoading(true);
-    setMessages(prev => [...prev, { role: 'user', content: input }]);
+    const userMessage = { role: 'user' as const, content: input };
+    const newMessages = [...messagesRef.current, userMessage];
+    setMessages(newMessages);
 
     try {
       const response = await fetch('/api/action', {
@@ -53,15 +65,18 @@ export function useGame(initialState?: GameState, characterId?: number) {
 
       const newState = data.stateChanges as GameState;
       setState(newState);
-      setMessages(prev => [...prev, { role: 'assistant', content: data.narrative }]);
+      const assistantMessage = { role: 'assistant' as const, content: data.narrative };
+      const updatedMessages = [...newMessages, assistantMessage];
+      setMessages(updatedMessages);
       setLastDice(data.diceResult || null);
       setLastOutcome(data.outcome);
 
       // Auto-save after each action
-      await saveGame(newState);
+      await saveGame(newState, updatedMessages);
     } catch (error) {
       console.error('Error processing action:', error);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Algo salió mal. El narrador guarda silencio.' }]);
+      const errorMessage = { role: 'assistant' as const, content: 'Algo salió mal. El narrador guarda silencio.' };
+      setMessages([...newMessages, errorMessage]);
     } finally {
       setIsLoading(false);
     }
