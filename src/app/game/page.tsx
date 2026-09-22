@@ -192,6 +192,61 @@ export default function GamePage() {
           <aside className="col-span-12 lg:col-span-3 space-y-4">
             <Inventory items={state.inventory} />
 
+            {state.npcs.length > 0 && (
+              <div className="fmab-panel bg-fmab-card border border-fmab-border rounded-lg p-4">
+                <h3 className="font-mono text-xs text-fmab-gold mb-3 tracking-wider">PRESENCIAS</h3>
+                <div className="space-y-2">
+                  {state.npcs.map(npc => (
+                    <div key={npc.id} className={`bg-fmab-darker border rounded p-3 ${npc.isHostile ? 'border-fmab-red/50' : 'border-fmab-border'}`}>
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="font-bold text-fmab-parchment">{npc.name}</span>
+                        <span className={`text-xs font-mono ${npc.isHostile ? 'text-fmab-redLight' : 'text-green-400'}`}>
+                          {npc.isHostile ? 'HOSTIL' : 'NEUTRAL'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-fmab-steel">
+                        {npc.archetype} · HP: {npc.hp}/{npc.maxHp}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {state.stealth && (
+              <div className={`fmab-panel bg-fmab-card border rounded-lg p-4 ${state.stealth.hidden ? 'border-green-500/50' : state.stealth.detected ? 'border-fmab-red/50' : 'border-fmab-border'}`}>
+                <h3 className="font-mono text-xs text-fmab-gold mb-2 tracking-wider">SIGILO</h3>
+                <div className={`text-sm font-bold ${state.stealth.hidden ? 'text-green-400' : state.stealth.detected ? 'text-fmab-redLight' : 'text-fmab-steel'}`}>
+                  {state.stealth.hidden ? '🔓 OCULTO' : state.stealth.detected ? '⚠️ DETECTADO' : '👁 VISIBLE'}
+                  {state.stealth.advantage && <span className="text-green-400 ml-2">+ventaja</span>}
+                  {state.stealth.compromised && <span className="text-fmab-yellow ml-2">comprometido</span>}
+                </div>
+              </div>
+            )}
+
+            <div className="fmab-panel bg-fmab-card border border-fmab-border rounded-lg p-4">
+              <h3 className="font-mono text-xs text-fmab-gold mb-3 tracking-wider">FACCIONES</h3>
+              <div className="space-y-2 text-xs">
+                {[
+                  { key: 'military', label: 'Militar', color: 'text-blue-400' },
+                  { key: 'ishvalan', label: 'Ishvalan', color: 'text-red-400' },
+                  { key: 'resistance', label: 'Resistencia', color: 'text-green-400' },
+                  { key: 'state', label: 'Estado', color: 'text-yellow-400' },
+                ].map(f => (
+                  <div key={f.key} className="flex justify-between">
+                    <span className="text-fmab-steel">{f.label}</span>
+                    <span className={f.color}>{state.factions[f.key as keyof typeof state.factions]}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-fmab-border pt-2 mt-2">
+                  <span className="text-fmab-redLight">Sospecha</span>
+                  <span className={`font-bold ${state.factions.suspicion > 70 ? 'text-fmab-redLight' : state.factions.suspicion > 40 ? 'text-fmab-goldLight' : 'text-green-400'}`}>
+                    {state.factions.suspicion}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
             {state.companions.length > 0 && (
               <div className="fmab-panel bg-fmab-card border border-fmab-border rounded-lg p-4">
                 <h3 className="font-mono text-xs text-fmab-gold mb-3 tracking-wider">COMPAÑEROS</h3>

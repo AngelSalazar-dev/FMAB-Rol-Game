@@ -1,6 +1,6 @@
 'use client';
 
-import type { GameState } from '@/types/game';
+import type { GameState, Injury } from '@/types/game';
 
 interface StatsPanelProps {
   character: GameState['character'];
@@ -9,15 +9,32 @@ interface StatsPanelProps {
   sanity: GameState['sanity'];
 }
 
-function StatBar({ label, value, max, color, warningThreshold = 0.3 }: {
+const INJURY_BODY: Record<string, string> = {
+  head: 'Cabeza', torso: 'Torso', left_arm: 'Brazo izq.', right_arm: 'Brazo der.',
+  left_leg: 'Pierna izq.', right_leg: 'Pierna der.', hand: 'Mano',
+};
+
+const INJURY_TYPE: Record<string, string> = {
+  cut: 'Corte', fracture: 'Fractura', burn: 'Quemadura', bullet: 'Balazo',
+  blunt: 'Golpe', stab: 'Aplastamiento',
+};
+
+const INJURY_SEVERITY: Record<string, string> = {
+  light: 'Leve', moderate: 'Moderada', severe: 'Grave', critical: 'Crítica',
+};
+
+function StatBar({ label, value, max, color, warningHigh = false, warningThreshold = 0.3 }: {
   label: string;
   value: number;
   max: number;
   color: string;
+  warningHigh?: boolean;
   warningThreshold?: number;
 }) {
   const percentage = (value / max) * 100;
-  const isWarning = percentage < warningThreshold * 100;
+  const isWarning = warningHigh
+    ? percentage > warningThreshold * 100
+    : percentage < warningThreshold * 100;
 
   const colorMap: Record<string, string> = {
     red: 'bg-red-600',
@@ -44,9 +61,10 @@ function StatBar({ label, value, max, color, warningThreshold = 0.3 }: {
 }
 
 export function StatsPanel({ character, health, stress, sanity }: StatsPanelProps) {
-  const untreatedSevere = health.injuries.filter((i: any) => !i.treated && i.severity === 'severe').length;
-  const untreatedModerate = health.injuries.filter((i: any) => !i.treated && i.severity === 'moderate').length;
-  const totalPenalty = untreatedSevere * -2 + untreatedModerate * -1;
+  const untreatedSevere = health.injuries.filter((i: Injury) => !i.treated && i.severity === 'severe').length;
+  const untreatedCritical = health.injuries.filter((i: Injury) => !i.treated && i.severity === 'critical').length;
+  const untreatedModerate = health.injuries.filter((i: Injury) => !i.treated && i.severity === 'moderate').length;
+  const totalPenalty = untreatedCritical * -3 + untreatedSevere * -2 + untreatedModerate * -1;
 
   return (
     <div className="fmab-panel bg-fmab-card border border-fmab-border rounded-lg p-4 space-y-6">
@@ -58,9 +76,36 @@ export function StatsPanel({ character, health, stress, sanity }: StatsPanelProp
 
       <div className="space-y-4">
         <StatBar label="VITALIDAD" value={health.current} max={health.max} color="red" warningThreshold={0.25} />
-        <StatBar label="ESTRÉS" value={stress.current} max={stress.max} color="yellow" warningThreshold={0.7} />
+        <StatBar label="ESTRÉS" value={stress.current} max={stress.max} color="yellow" warningHigh warningThreshold={0.7} />
         <StatBar label="CORDURA" value={sanity.current} max={sanity.max} color="purple" warningThreshold={0.3} />
       </div>
+
+      {sanity.conditions.length > 0 && (
+        <div className="border-t border-fmab-purple pt-3">
+          <h3 className="font-mono text-xs text-fmab-purple mb-2 tracking-wider">CONDICIONES MENTALES</h3>
+          <div className="flex flex-wrap gap-1">
+            {sanity.conditions.map((cond: string) => (
+              <span key={cond} className="px-2 py-0.5 bg-fmab-purple/20 text-fmab-purple text-xs rounded border border-fmab-purple/30">
+                {cond}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stress.traumas.length > 0 && (
+        <div className="border-t border-fmab-red pt-3">
+          <h3 className="font-mono text-xs text-fmab-red mb-2 tracking-wider">TRAUMAS</h3>
+          <div className="space-y-1">
+            {stress.traumas.map((trauma: any) => (
+              <div key={trauma.id || trauma.type} className="text-xs text-fmab-redLight flex justify-between">
+                <span>{trauma.type}</span>
+                {trauma.permanent && <span className="text-fmab-red font-mono">PERMANENTE</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="border-t border-fmab-border pt-4">
         <h3 className="font-mono text-xs text-fmab-gold mb-2 tracking-wider">ATRIBUTOS</h3>
@@ -90,12 +135,14 @@ export function StatsPanel({ character, health, stress, sanity }: StatsPanelProp
         <div className="border-t border-fmab-red pt-4">
           <h3 className="font-mono text-xs text-fmab-red mb-2 tracking-wider">HERIDAS</h3>
           <div className="space-y-1 text-xs">
-            {health.injuries.map((injury: any) => (
+            {health.injuries.map((injury: Injury) => (
               <div key={injury.id} className="flex justify-between text-fmab-redLight">
-                <span>{injury.bodyPart}: {injury.type} ({injury.severity})</span>
+                <span>{INJURY_BODY[injury.bodyPart] || injury.bodyPart}: {INJURY_TYPE[injury.type] || injury.type} ({INJURY_SEVERITY[injury.severity] || injury.severity})</span>
                 <span className="flex items-center gap-2">
+                  {!injury.treated && injury.severity === 'critical' && <span className="text-fmab-red font-bold">-3</span>}
                   {!injury.treated && injury.severity === 'severe' && <span className="text-fmab-redLight">-2</span>}
                   {!injury.treated && injury.severity === 'moderate' && <span className="text-fmab-yellow">-1</span>}
+                  {injury.isAutomail && <span className="text-fmab-steel">⚙</span>}
                   <span>{injury.treated ? '✓' : '✗'}</span>
                 </span>
               </div>
