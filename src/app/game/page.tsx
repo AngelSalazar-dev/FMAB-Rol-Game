@@ -33,7 +33,7 @@ export default function GamePage() {
     }
   }, []);
 
-  const { state, messages, isLoading, lastDice, lastOutcome, sendAction, resetGame } = useGame(gameState || INITIAL_STATE);
+  const { state, messages, isLoading, lastDice, lastOutcome, sendAction, resetGame } = useGame(gameState || INITIAL_STATE, characterId ?? undefined);
 
   useEffect(() => {
     if (lastDice) {

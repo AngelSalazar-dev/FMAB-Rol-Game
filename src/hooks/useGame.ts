@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { GameState, DiceResult } from '@/types/game';
 import { INITIAL_STATE } from '@/engine/core/state';
 
-export function useGame(initialState?: GameState) {
+export function useGame(initialState?: GameState, characterId?: number) {
   const [state, setState] = useState<GameState>(initialState || INITIAL_STATE);
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,6 +18,19 @@ export function useGame(initialState?: GameState) {
       setState(initialState);
     }
   }, [initialState?.character?.id]);
+
+  const saveGame = useCallback(async (gameState: GameState) => {
+    if (!characterId) return;
+    try {
+      await fetch('/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characterId, state: gameState }),
+      });
+    } catch (e) {
+      console.error('Error saving game:', e);
+    }
+  }, [characterId]);
 
   const sendAction = useCallback(async (input: string) => {
     if (!input.trim() || isLoading) return;
@@ -38,17 +51,21 @@ export function useGame(initialState?: GameState) {
 
       const data = await response.json();
 
-      setState(data.stateChanges as GameState);
+      const newState = data.stateChanges as GameState;
+      setState(newState);
       setMessages(prev => [...prev, { role: 'assistant', content: data.narrative }]);
       setLastDice(data.diceResult || null);
       setLastOutcome(data.outcome);
+
+      // Auto-save after each action
+      await saveGame(newState);
     } catch (error) {
       console.error('Error processing action:', error);
       setMessages(prev => [...prev, { role: 'assistant', content: 'Algo salió mal. El narrador guarda silencio.' }]);
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading]);
+  }, [isLoading, saveGame]);
 
   const resetGame = useCallback((newState?: GameState) => {
     setState(newState || INITIAL_STATE);

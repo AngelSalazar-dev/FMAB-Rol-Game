@@ -13,7 +13,7 @@ export function processSocial(parsed: ParsedAction, dice: DiceResult, state: Gam
   else if (lower.includes('amenaz') || lower.includes('intimid')) intent = 'intimidate';
   else if (lower.includes('soborn') || lower.includes('pago') || lower.includes('dinero')) intent = 'bribe';
 
-  const carismaMod = Math.floor((state.character.attributes.car - 10) / 2);
+  const carismaMod = 0; // Attribute mod already applied in engine.ts dice roll
   const adjustedTotal = dice.total + carismaMod;
 
   let outcome: 'complete' | 'partial' | 'miss';
@@ -22,20 +22,36 @@ export function processSocial(parsed: ParsedAction, dice: DiceResult, state: Gam
   else outcome = 'miss';
 
   details.push(`Intención: ${intent}`);
-  details.push(`Carisma: ${carismaMod >= 0 ? '+' : ''}${carismaMod}`);
+  details.push(`Carisma: ${carismaMod >= 0 ? '+' : ''}${carismaMod} (aplicado en tirada base)`);
   details.push(`Tirada ajustada: ${adjustedTotal} (${getOutcomeLabel(outcome)})`);
 
   switch (outcome) {
     case 'complete':
       details.push('Tus palabras tienen el efecto deseado. El objetivo cede.');
       changes.social = { success: true, intent, attitude: 'friendly' };
-      if (intent === 'bribe') changes.inventory = { remove: { name: 'dinero', quantity: 50 } };
+      if (intent === 'bribe') {
+        const hasMoney = state.inventory.some(i => i.name.toLowerCase() === 'dinero' && i.quantity >= 50);
+        if (hasMoney) {
+          changes.inventory = { remove: { name: 'dinero', quantity: 50 } };
+        } else {
+          details.push('¡No tienes suficiente dinero para sobornar!');
+          return { success: false, outcome: 'miss' as const, changes, details: ['No tienes dinero para sobornar.'] };
+        }
+      }
       break;
     case 'partial':
       details.push('Logras algo, pero no todo. El objetivo duda o pone condiciones.');
       changes.social = { success: true, intent, attitude: 'neutral', conditions: true };
       changes.stress = 5;
-      if (intent === 'bribe') changes.inventory = { remove: { name: 'dinero', quantity: 25 } };
+      if (intent === 'bribe') {
+        const hasMoney = state.inventory.some(i => i.name.toLowerCase() === 'dinero' && i.quantity >= 25);
+        if (hasMoney) {
+          changes.inventory = { remove: { name: 'dinero', quantity: 25 } };
+        } else {
+          details.push('¡No tienes suficiente dinero para sobornar!');
+          return { success: false, outcome: 'miss' as const, changes, details: ['No tienes dinero para sobornar.'] };
+        }
+      }
       break;
     case 'miss':
       details.push('Tus palabras fallan. El objetivo se ofende, desconfía o ataca.');

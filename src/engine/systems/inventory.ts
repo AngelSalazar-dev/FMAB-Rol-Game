@@ -81,7 +81,13 @@ export function processInventory(parsed: ParsedAction, dice: any, state: GameSta
       details.push('No tienes consumibles.');
       return { success: false, outcome: 'miss' as const, changes, details };
     }
-    const item = consumables[0];
+    // Try to find specific item mentioned, otherwise use first
+    let item = consumables[0];
+    const material = extractMaterialFromInput(lower);
+    if (material) {
+      const specific = consumables.find(c => c.name.toLowerCase() === material);
+      if (specific) item = specific;
+    }
     changes.inventory = { remove: { name: item.name, quantity: 1 } };
     details.push(`Usas ${item.name}.`);
     if (item.properties.heal) changes.heal = item.properties.heal;

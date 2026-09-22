@@ -7,7 +7,7 @@ import { addInjury, healInjury } from '@/engine/systems/health';
 import { increaseSuspicion, changeReputation } from '@/engine/systems/factions';
 import { updateLoyalty } from '@/engine/systems/companions';
 import { addDecision } from '@/engine/systems/morality';
-import { advanceClock, reduceClock } from './clocks';
+import { advanceClock, reduceClock, isClockComplete, Clock } from './clocks';
 import { processAlchemy } from '@/engine/systems/alchemy';
 import { processCombat } from '@/engine/systems/combat';
 import { processStealth } from '@/engine/systems/stealth';
@@ -16,6 +16,7 @@ import { processExploration } from '@/engine/systems/exploration';
 import { processInventory, addItem, removeItem } from '@/engine/systems/inventory';
 import { processRest } from '@/engine/systems/downtime';
 import { generateNarrative } from '@/engine/ai/router';
+import { advanceTime } from '@/engine/systems/weather';
 
 export interface GameResponse {
   narrative: string;
@@ -82,7 +83,7 @@ export async function processAction(input: string, state: GameState): Promise<Ga
       };
   }
 
-  const newState = applyStateChanges(state, mechanicalResult.changes as Partial<GameState>);
+  let newState = applyStateChanges(state, mechanicalResult.changes as Partial<GameState>);
 
   if (mechanicalResult.changes.stress) {
     newState.stress = addStress(newState.stress, mechanicalResult.changes.stress);
@@ -132,8 +133,40 @@ export async function processAction(input: string, state: GameState): Promise<Ga
         } else {
           newState.clocks[clockIndex] = reduceClock(newState.clocks[clockIndex], Math.abs(segments));
         }
+        // Check for clock completion
+        if (isClockComplete(newState.clocks[clockIndex])) {
+          handleClockCompletion(newState, newState.clocks[clockIndex], mechanicalResult.details);
+        }
       }
     }
+  }
+
+  function handleClockCompletion(state: GameState, clock: Clock, details: string[]) {
+    switch (clock.id) {
+      case 'suspicion':
+        details.push('⚠️ ¡SOSPECHA MÁXIMA! La Policía Militar te busca activamente.');
+        state.factions.suspicion = 100;
+        break;
+      case 'disease':
+        details.push('☠️ ¡INFECCIÓN CRÍTICA! Una herida no tratada se vuelve séptica.');
+        state.health.current = Math.max(1, state.health.current - 20);
+        break;
+      case 'consequence':
+        details.push('💥 ¡CONSECUENCIAS EN CASCADA! Algo terrible sucede.');
+        state.stress = { ...state.stress, current: Math.min(state.stress.max, state.stress.current + 30) };
+        break;
+      case 'trust':
+        details.push('💔 ¡CONFIANZA ROTA! Un compañero te abandona.');
+        if (state.companions.length > 0) {
+          const leaving = state.companions[0];
+          state.companions = state.companions.slice(1);
+          details.push(`${leaving.name} se ha ido.`);
+        }
+        break;
+    }
+    // Reset clock after completion
+    const idx = state.clocks.findIndex(c => c.id === clock.id);
+    if (idx !== -1) state.clocks[idx] = { ...clock, filled: 0 };
   }
 
   if (mechanicalResult.changes.inventory) {
@@ -149,6 +182,27 @@ export async function processAction(input: string, state: GameState): Promise<Ga
   if (mechanicalResult.changes.environment) {
     const env = mechanicalResult.changes.environment;
     if (env.terrain) newState.environment.terrain = env.terrain as typeof newState.environment.terrain;
+  }
+
+  if (mechanicalResult.changes.timeAdvanced) {
+    newState = advanceTime(newState);
+  }
+
+  if (mechanicalResult.changes.combat) {
+    const combat = mechanicalResult.changes.combat;
+    if (combat.damage > 0 && newState.npcs.length > 0) {
+      const targetIndex = newState.npcs.findIndex(n => n.isHostile);
+      if (targetIndex !== -1) {
+        const target = newState.npcs[targetIndex];
+        const actualDamage = Math.max(1, combat.damage - target.armor);
+        target.hp -= actualDamage;
+        mechanicalResult.details.push(`${target.name} recibe ${actualDamage} de daño (HP: ${Math.max(0, target.hp)}/${target.maxHp}).`);
+        if (target.hp <= 0) {
+          mechanicalResult.details.push(`¡${target.name} ha sido derrotado!`);
+          newState.npcs.splice(targetIndex, 1);
+        }
+      }
+    }
   }
 
   const narrative = await generateNarrative({

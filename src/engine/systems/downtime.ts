@@ -24,7 +24,7 @@ export function processRest(parsed: ParsedAction, dice: DiceResult, state: GameS
   else if (lower.includes('entren') || lower.includes('practic') || lower.includes('mejorar')) activity = DOWNTIME_ACTIVITIES[4];
   else if (lower.includes('trabaj') || lower.includes('ganar') || lower.includes('dinero')) activity = DOWNTIME_ACTIVITIES[5];
 
-  const volMod = Math.floor((state.character.attributes.vol - 10) / 2);
+  const volMod = 0; // Attribute mod already applied in engine.ts dice roll
   const adjustedTotal = dice.total + volMod;
 
   let outcome: 'complete' | 'partial' | 'miss';

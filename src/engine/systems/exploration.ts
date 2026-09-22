@@ -13,7 +13,7 @@ export function processExploration(parsed: ParsedAction, dice: DiceResult, state
   else if (lower.includes('investig') || lower.includes('examin') || lower.includes('analiz')) intent = 'investigate';
   else if (lower.includes('viajo') || lower.includes('voy a') || lower.includes('me dirijo')) intent = 'travel';
 
-  const perceptionMod = Math.floor((state.character.attributes.per - 10) / 2);
+  const perceptionMod = 0; // Attribute mod already applied in engine.ts dice roll
   const adjustedTotal = dice.total + perceptionMod;
 
   let outcome: 'complete' | 'partial' | 'miss';

@@ -61,6 +61,7 @@ export const INITIAL_STATE: GameState = {
     terrain: 'urban',
     temperature: 20,
   },
+  npcs: [],
 };
 
 export function createInitialState(character: Character): GameState {
@@ -98,7 +99,19 @@ export function applyStateChanges(state: GameState, changes: Partial<GameState>)
 
 export function getModifier(state: GameState, attribute: keyof Character['attributes']): number {
   const value = state.character.attributes[attribute];
-  return Math.floor((value - 10) / 2);
+  let mod = Math.floor((value - 10) / 2);
+  
+  // Injury penalties
+  const untreatedInjuries = state.health.injuries.filter(i => !i.treated);
+  const severeInjuries = untreatedInjuries.filter(i => i.severity === 'severe').length;
+  const moderateInjuries = untreatedInjuries.filter(i => i.severity === 'moderate').length;
+  const lightInjuries = untreatedInjuries.filter(i => i.severity === 'light').length;
+  
+  mod -= severeInjuries * 2;
+  mod -= moderateInjuries * 1;
+  mod -= lightInjuries * 0; // Light injuries don't penalize
+  
+  return mod;
 }
 
 export function isAlive(state: GameState): boolean {

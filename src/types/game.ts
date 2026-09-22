@@ -182,6 +182,8 @@ export interface GameState {
   clocks: Clock[];
   morality: MoralityState;
   environment: EnvironmentState;
+  npcs: NPC[];
+  stealth?: { hidden: boolean; advantage?: boolean; compromised?: boolean; detected?: boolean };
 }
 
 export interface ParsedAction {

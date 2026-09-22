@@ -25,11 +25,12 @@ export function getWeapon(state: GameState, weaponName?: string): Weapon {
   return WEAPONS.puños;
 }
 
-export function calculateDamage(weapon: Weapon, dice: DiceResult, position: 'melee' | 'ranged' | 'flanking' = 'melee'): number {
+export function calculateDamage(weapon: Weapon, dice: DiceResult, position: 'melee' | 'ranged' | 'flanking' = 'melee', stealthAttack: boolean = false): number {
   let baseDamage = weapon.damage;
 
   if (position === 'flanking') baseDamage *= 1.5;
   if (weapon.range === 'long' && position === 'melee') baseDamage *= 0.5;
+  if (stealthAttack) baseDamage *= 2; // Stealth attacks deal double damage
 
   if (dice.outcome === 'complete') baseDamage *= 2;
   if (dice.outcome === 'partial') baseDamage *= 1.5;
@@ -45,13 +46,20 @@ export function processCombat(parsed: ParsedAction, dice: DiceResult, state: Gam
   const weapon = getWeapon(state, parsed.weapon);
   const position = parsed.raw.toLowerCase().includes('flanco') ? 'flanking' :
                    parsed.raw.toLowerCase().includes('distancia') ? 'ranged' : 'melee';
+  const stealthAttack = state.stealth?.hidden === true;
 
-  const damage = calculateDamage(weapon, dice, position);
+  const damage = calculateDamage(weapon, dice, position, stealthAttack);
 
   details.push(`Arma: ${weapon.name} (${weapon.damage} daño base)`);
   details.push(`Posición: ${position}`);
+  if (stealthAttack) details.push('¡ATAQUE SIGILOSO! Daño duplicado.');
   details.push(`Tirada: ${getOutcomeLabel(dice.outcome)}`);
   details.push(`Daño calculado: ${damage}`);
+
+  // Consume stealth after attack
+  if (stealthAttack) {
+    changes.stealth = { hidden: false, advantage: false };
+  }
 
   if (dice.outcome === 'miss') {
     details.push('Tu ataque falla estrepitosamente.');
@@ -64,7 +72,7 @@ export function processCombat(parsed: ParsedAction, dice: DiceResult, state: Gam
         treated: false,
         isAutomail: false,
       };
-changes.injury = injury;
+      changes.injury = injury;
       changes.stress = 5;
       details.push('Recibes un contraataque. Golpe leve en el torso.');
     }
