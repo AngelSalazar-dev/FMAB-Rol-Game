@@ -1,5 +1,7 @@
 import OpenAI from 'openai';
 import Groq from 'groq-sdk';
+import { FMAB_SYSTEM_PROMPT, DEATH_PROMPT, INSANITY_PROMPT, VICTORY_PROMPT } from './prompts';
+import { LOCATIONS } from '@/engine/data/locations';
 
 const OPENROUTER_MODELS = [
   'nvidia/nemotron-3-ultra-550b-a55b:free',
@@ -19,6 +21,7 @@ const GROQ_MODELS = [
 
 const COOLDOWN_MS = 60_000;
 const MAX_FAILS = 5;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 type ProviderName = 'openrouter' | 'groq';
 
@@ -74,11 +77,11 @@ function resetCooldownIfNeeded(name: ProviderName) {
   }
 }
 
-function recordFailure(name: ProviderName) {
+function recordFailure(name: ProviderName, isRateLimit: boolean = false) {
   const s = status[name];
   s.failCount++;
-  if (s.failCount >= MAX_FAILS) {
-    s.cooldownUntil = Date.now() + COOLDOWN_MS;
+  if (isRateLimit || s.failCount >= MAX_FAILS) {
+    s.cooldownUntil = Date.now() + (isRateLimit ? COOLDOWN_MS * 3 : COOLDOWN_MS);
     s.available = false;
   }
 }
@@ -95,6 +98,7 @@ export interface NarrativeContext {
   dice: any;
   mechanicalResult: any;
   state: any;
+  recentNarratives?: string[];
 }
 
 export async function generateNarrative(context: NarrativeContext): Promise<string> {
@@ -105,93 +109,187 @@ export async function generateNarrative(context: NarrativeContext): Promise<stri
     { role: 'user' as const, content: prompt },
   ];
 
-  const result = await streamChat(messages);
-  return result;
+  try {
+    const result = await streamChat(messages);
+    if (!result || result.trim().length === 0) {
+      console.warn('AI returned empty response, using fallback');
+      return generateFallback(context);
+    }
+    return result;
+  } catch (e) {
+    console.error('All AI providers failed, using fallback:', e);
+    return generateFallback(context);
+  }
+}
+
+function generateFallback(context: NarrativeContext): string {
+  const { action, mechanicalResult, state } = context;
+  const outcome = mechanicalResult?.outcome || 'miss';
+  const name = state?.character?.name || 'El alquimista';
+
+  const fallbacks: Record<string, string[]> = {
+    complete: [
+      `${name} ejecuta la acción con precisión. El resultado supera lo esperado.`,
+      `La acción de ${name} sale perfectamente. Todo funciona como planeado.`,
+      `${name} logra lo que se propuso. El éxito es claro.`,
+    ],
+    partial: [
+      `${name} logra parte de lo que quería, pero algo sale mal por el camino.`,
+      `La acción de ${name} funciona a medias. Hay una consecuencia no esperada.`,
+      `${name} avanza, pero el costo es más alto del previsto.`,
+    ],
+    miss: [
+      `${name} falla estrepitosamente. La situación se complica.`,
+      `La acción de ${name} no produce el efecto deseado. Algo sale mal.`,
+      `${name} intenta pero no lo logra. Las cosas empeoran.`,
+    ],
+  };
+
+  const options = fallbacks[outcome] || fallbacks.miss;
+  return options[Math.floor(Math.random() * options.length)];
 }
 
 function buildPrompt(context: NarrativeContext): string {
-  const { action, parsed, dice, mechanicalResult, state } = context;
+  const { action, parsed, dice, mechanicalResult, state, recentNarratives } = context;
 
-  let prompt = `ACCIÓN DEL JUGADOR: "${action}"\n\n`;
-  prompt += `TIPO DE ACCIÓN: ${parsed.type}\n`;
-  prompt += `RESULTADO MECÁNICO: ${mechanicalResult.outcome.toUpperCase()}\n`;
-  prompt += `TIRADA: ${dice.roll1} + ${dice.roll2} ${dice.modifier >= 0 ? '+' : ''}${dice.modifier} = ${dice.total}\n\n`;
+  let prompt = `ACCIÓN: "${action}"\n`;
+  prompt += `TIPO: ${parsed.type} | RESULTADO: ${mechanicalResult.outcome.toUpperCase()}\n`;
+  prompt += `TIRADA: ${dice.roll1}+${dice.roll2}${dice.modifier >= 0 ? '+' : ''}${dice.modifier}=${dice.total}\n\n`;
 
+  // Compressed mechanical details
   if (mechanicalResult.details.length > 0) {
-    prompt += `DETALLES MECÁNICOS:\n`;
-    mechanicalResult.details.forEach((d: string) => prompt += `- ${d}\n`);
-    prompt += '\n';
+    const summary = mechanicalResult.details
+      .filter((d: string) => !d.startsWith('Arma:') && !d.startsWith('Posición:') && !d.startsWith('Tirada:'))
+      .slice(0, 3)
+      .join('. ');
+    if (summary) prompt += `RESULTADO: ${summary}\n\n`;
   }
 
-  prompt += `ESTADO ACTUAL:\n`;
-  prompt += `- Nombre: ${state.character.name} (${state.character.origin}, ${state.character.history})\n`;
-  prompt += `- Atributos: FUE:${state.character.attributes.str} AGI:${state.character.attributes.agi} INT:${state.character.attributes.int} PER:${state.character.attributes.per} VOL:${state.character.attributes.vol} CAR:${state.character.attributes.car}\n`;
-  prompt += `- HP: ${state.health.current}/${state.health.max}\n`;
-  prompt += `- Estrés: ${state.stress.current}/${state.stress.max}\n`;
-  prompt += `- Cordura: ${state.sanity.current}/${state.sanity.max}\n`;
-  prompt += `- Sospecha: ${state.factions.suspicion}/100\n`;
-  prompt += `- Ubicación: ${state.location}\n`;
-  prompt += `- Clima: ${state.environment.weather}, ${state.environment.time}, ${state.environment.temperature}°C\n`;
-  prompt += `- Alineamiento: ${state.morality.alignment} (Karma: ${state.morality.karma})\n\n`;
+  // Character core
+  const ch = state.character;
+  prompt += `PERSONAJE: ${ch.name} (${ch.origin}, ${ch.history})\n`;
+  prompt += `ATTR: FUE${ch.attributes.str} AGI${ch.attributes.agi} INT${ch.attributes.int} PER${ch.attributes.per} VOL${ch.attributes.vol} CAR${ch.attributes.car}\n`;
+  prompt += `HP: ${state.health.current}/${state.health.max} | ESTRÉS: ${state.stress.current}/${state.stress.max} | CORDURA: ${state.sanity.current}/${state.sanity.max}\n`;
 
+  // Appearance
+  if (ch.appearance) {
+    const parts: string[] = [];
+    if (ch.appearance.scars?.length) parts.push(`cicatrices: ${ch.appearance.scars.join(', ')}`);
+    if (ch.appearance.automail) parts.push(`automail: ${ch.appearance.automail}`);
+    if (ch.appearance.clothing) parts.push(`ropa: ${ch.appearance.clothing}`);
+    if (parts.length) prompt += `APARIENCIA: ${parts.join(', ')}\n`;
+  }
+
+  // Skills
+  if (ch.skills?.length) prompt += `HABILIDADES: ${ch.skills.join(', ')}\n`;
+
+  // Location with description
+  const loc = LOCATIONS[state.location];
+  if (loc) {
+    prompt += `\nUBICACIÓN: ${loc.name}\n`;
+    prompt += `DESCRIPCIÓN: ${loc.description}\n`;
+    prompt += `CONEXIONES: ${loc.connections.map((c: string) => LOCATIONS[c]?.name || c).join(', ')}\n`;
+    prompt += `PELIGRO: ${loc.danger}/10\n`;
+  }
+
+  // Environment
+  prompt += `CLIMA: ${state.environment.weather}, ${state.environment.time}, ${state.environment.temperature}°C\n`;
+
+  // Factions
+  const f = state.factions;
+  prompt += `FACCIONES: Mil${f.military} Ish${f.ishvalan} Res${f.resistance} Est${f.state} Sos${f.suspicion}%\n`;
+
+  // Clocks
+  if (state.clocks?.length) {
+    const clockStr = state.clocks
+      .filter((c: any) => c.filled > 0)
+      .map((c: any) => `${c.name}(${c.filled}/${c.max})`)
+      .join(', ');
+    if (clockStr) prompt += `RELOJES: ${clockStr}\n`;
+  }
+
+  // Morality
+  prompt += `ALINEAMIENTO: ${state.morality.alignment} (karma: ${state.morality.karma})\n`;
+
+  // Injuries
   if (state.health.injuries.length > 0) {
-    prompt += `HERIDAS ACTIVAS:\n`;
-    state.health.injuries.forEach((inj: any) => {
-      prompt += `- ${inj.bodyPart}: ${inj.type} (${inj.severity}) ${inj.treated ? '[TRATADA]' : '[SIN TRATAR]'}\n`;
-    });
-    prompt += '\n';
+    const INJURY_BODY: Record<string, string> = {
+      head: 'Cabeza', torso: 'Torso', left_arm: 'Brazo izq', right_arm: 'Brazo der',
+      left_leg: 'Pierna izq', right_leg: 'Pierna der', hand: 'Mano',
+    };
+    const INJURY_TYPE: Record<string, string> = {
+      cut: 'Corte', fracture: 'Fractura', burn: 'Quemadura', bullet: 'Balazo',
+      blunt: 'Golpe', stab: 'Aplastamiento',
+    };
+    const injuries = state.health.injuries
+      .map((i: any) => `${INJURY_BODY[i.bodyPart] || i.bodyPart}:${INJURY_TYPE[i.type] || i.type}(${i.severity})${i.treated ? '✓' : '✗'}`)
+      .join(', ');
+    prompt += `HERIDAS: ${injuries}\n`;
   }
 
+  // Inventory (compressed)
   if (state.inventory.length > 0) {
-    prompt += `INVENTARIO:\n`;
-    state.inventory.forEach((item: any) => {
-      prompt += `- ${item.name} x${item.quantity} (${item.item_type})\n`;
-    });
-    prompt += '\n';
+    const items = state.inventory
+      .slice(0, 8)
+      .map((i: any) => `${i.name}${i.quantity > 1 ? `x${i.quantity}` : ''}`)
+      .join(', ');
+    prompt += `EQUIPO: ${items}${state.inventory.length > 8 ? ` (+${state.inventory.length - 8} más)` : ''}\n`;
   }
 
+  // NPCs
   if (state.npcs.length > 0) {
-    prompt += `NPCS PRESENTES:\n`;
+    prompt += `\nNPCS:\n`;
     state.npcs.forEach((npc: any) => {
-      prompt += `- ${npc.name} (${npc.archetype}, ${npc.faction}) HP:${npc.hp}/${npc.maxHp} ${npc.isHostile ? '[HOSTIL]' : '[NEUTRAL]'}\n`;
+      prompt += `- ${npc.name} [${npc.archetype},${npc.faction}] HP:${npc.hp}/${npc.maxHp} ${npc.isHostile ? 'HOSTIL' : 'neutral'}`;
+      if (npc.weapon) prompt += ` arma:${npc.weapon}`;
+      prompt += '\n';
     });
-    prompt += '\n';
   }
 
+  // Companions with personality
   if (state.companions.length > 0) {
-    prompt += `COMPAÑEROS:\n`;
+    prompt += `\nCOMPAÑEROS:\n`;
     state.companions.forEach((c: any) => {
-      prompt += `- ${c.name} (Lealtad: ${c.loyalty}%) Skills: ${c.skills.join(', ')}\n`;
+      prompt += `- ${c.name} Lealtad:${c.loyalty}% ${c.status}`;
+      if (c.personality?.traits?.length) prompt += ` rasgos:${c.personality.traits.join(',')}`;
+      if (c.personality?.trauma) prompt += ` trauma:${c.personality.trauma}`;
+      if (c.personality?.vice) prompt += ` vicio:${c.personality.vice}`;
+      prompt += '\n';
     });
-    prompt += '\n';
   }
 
-  if (state.stress.traumas.length > 0) {
-    prompt += `TRAUMAS: ${state.stress.traumas.map((t: any) => t.type).join(', ')}\n\n`;
+  // Sanity conditions
+  if (state.sanity.conditions?.length) {
+    prompt += `CONDICIONES: ${state.sanity.conditions.join(', ')}\n`;
   }
 
-  if (state.stealth?.hidden) {
-    prompt += `ESTADO: OCULTO (ventaja en próximo ataque)\n`;
+  // Traumas
+  if (state.stress.traumas?.length) {
+    prompt += `TRAUMAS: ${state.stress.traumas.map((t: any) => t.type + (t.permanent ? '(permanente)' : '')).join(', ')}\n`;
   }
 
-prompt += `INSTRUCCIONES:\n`;
-  prompt += `1. Escribe SOLO narrativa en segunda persona.\n`;
-  prompt += `2. NO inventes consecuencias mecánicas.\n`;
-  prompt += `3. NO cambies el estado del juego.\n`;
-  prompt += `4. Respeta el resultado: ${mechanicalResult.outcome}.\n`;
-  prompt += `5. Tono serio y oscuro, como el anime.\n`;
-  prompt += `6. Sé breve: 2-3 párrafos cortos.\n`;
-  prompt += `7. Usa palabras simples y directas.\n`;
-  prompt += `8. Describe lo que el jugador ve y siente.\n`;
-  prompt += `9. Si hay heridas, menciona el dolor.\n`;
-  prompt += `10. Si hay enemigos, describe qué hacen.\n\n`;
+  // Stealth
+  if (state.stealth?.hidden) prompt += `ESTADO: OCULTO\n`;
+  if (state.stealth?.compromised) prompt += `ESTADO: SIGILO COMPROMETIDO\n`;
 
+  // Recent narratives for continuity
+  if (recentNarratives?.length) {
+    prompt += `\nCONTEXTO RECIENTE:\n`;
+    recentNarratives.slice(-2).forEach((n: string, i: number) => {
+      prompt += `[Turno anterior ${i + 1}]: ${n.slice(0, 200)}...\n`;
+    });
+  }
+
+  // Turn and mode
+  prompt += `\nTURNO: ${state.turn} | MODO: ${state.mode || 'freedom'}\n`;
+
+  // Outcome-specific instruction
   if (mechanicalResult.outcome === 'miss') {
-    prompt += `La acción FALLÓ. Describe qué salió mal.`;
+    prompt += `\nLa acción FALLÓ. Describe qué salió mal.`;
   } else if (mechanicalResult.outcome === 'partial') {
-    prompt += `ÉXITO CON COSTO. Funciona, pero algo sale mal.`;
+    prompt += `\nÉXITO CON COSTO. Funciona, pero hay una consecuencia.`;
   } else {
-    prompt += `ÉXITO COMPLETO. Todo sale bien.`;
+    prompt += `\nÉXITO COMPLETO. Todo sale bien.`;
   }
 
   return prompt;
@@ -204,64 +302,100 @@ export async function streamChat(messages: { role: 'system' | 'user' | 'assistan
 
   console.log('streamChat called. openrouter:', !!openrouterClient, 'groq:', !!groqClient);
 
-  // === FASE 1: OpenRouter (7 modelos free en cascada) ===
+  // === FASE 1: OpenRouter ===
   if (openrouterClient && !checkCooldown('openrouter')) {
     for (const model of OPENROUTER_MODELS) {
       try {
-        console.log('Trying OpenRouter (FREE):', model);
+        console.log('Trying OpenRouter:', model);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
         const response = await openrouterClient.chat.completions.create({
           model,
           messages,
           temperature: 0.7,
-          max_tokens: 2048,
+          max_tokens: 512,
           stream: true,
         } as any);
+        clearTimeout(timeout);
         recordSuccess('openrouter');
         console.log('OpenRouter success:', model);
+
         let fullText = '';
         const stream = response as unknown as AsyncIterable<any>;
         for await (const chunk of stream) {
           const content = chunk.choices?.[0]?.delta?.content;
           if (content) fullText += content;
         }
+
+        if (!fullText || fullText.trim().length === 0) {
+          console.warn('OpenRouter empty response:', model);
+          recordFailure('openrouter');
+          continue;
+        }
+
         console.log('OpenRouter response length:', fullText.length);
         return fullText;
       } catch (e: any) {
+        clearTimeout((e as any)?.timeoutId);
+        const isRateLimit = e?.status === 429 || e?.message?.includes('rate');
         console.error('OpenRouter error:', model, e?.message || e);
-        recordFailure('openrouter');
+        recordFailure('openrouter', isRateLimit);
       }
     }
   }
 
-  // === FASE 2: Groq (3 modelos free en cascada) ===
+  // === FASE 2: Groq ===
   if (groqClient && !checkCooldown('groq')) {
     for (const model of GROQ_MODELS) {
       try {
-        console.log('Trying Groq (FREE):', model);
+        console.log('Trying Groq:', model);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
         const stream = await groqClient.chat.completions.create({
           model,
           messages,
           temperature: 0.7,
-          max_tokens: 2048,
+          max_tokens: 512,
           stream: true,
         });
+        clearTimeout(timeout);
         recordSuccess('groq');
         console.log('Groq success:', model);
+
         let fullText = '';
         for await (const chunk of stream) {
           const content = chunk.choices?.[0]?.delta?.content;
           if (content) fullText += content;
         }
+
+        if (!fullText || fullText.trim().length === 0) {
+          console.warn('Groq empty response:', model);
+          recordFailure('groq');
+          continue;
+        }
+
         console.log('Groq response length:', fullText.length);
         return fullText;
       } catch (e: any) {
+        clearTimeout((e as any)?.timeoutId);
+        const isRateLimit = e?.status === 429 || e?.message?.includes('rate');
         console.error('Groq error:', model, e?.message || e);
-        recordFailure('groq');
+        recordFailure('groq', isRateLimit);
       }
     }
   }
 
-  throw new Error('Todos los providers de IA están agotados. Intenta de nuevo en unos minutos.');
+  throw new Error('Todos los providers de IA están agotados.');
+}
+
+export function getSpecialPrompt(type: 'death' | 'insanity' | 'victory'): string {
+  switch (type) {
+    case 'death': return DEATH_PROMPT;
+    case 'insanity': return INSANITY_PROMPT;
+    case 'victory': return VICTORY_PROMPT;
+  }
 }
 
 export function getProviderStatus() {
@@ -270,40 +404,3 @@ export function getProviderStatus() {
     groq: { enabled: !!groqClient, inCooldown: checkCooldown('groq') },
   };
 }
-
-const FMAB_SYSTEM_PROMPT = `
-Eres el narrador de un juego de rol de Fullmetal Alchemist: Brotherhood. Ecribes en español claro y directo.
-
-REGLAS:
-1. Escribe en segunda persona ("Tú haces...", "Ves...", "Sientes...").
-2. NO inventes efectos mecánicos (nours, curas, estrés, sospecha).
-3. NO cambies el estado del juego.
-4. Respeta el resultado: ÉXITO, ÉXITO CON COSTO, o FALLO.
-5. Tono serio y oscuro, como el anime.
-6. Sé breve: 2-3 párrafos cortos.
-7. Usa palabras simples. No uses lenguaje poético ni florido.
-
-CÓMO ESCRIBIR:
-- Describe lo que el jugador ve, oye y siente.
-- Si falla, explica qué salió mal de forma clara.
-- Si tiene heridas, menciona el dolor brevemente.
-- Si hay enemigos, describe qué hacen.
-- Termina con una frase que deje claro qué pasó.
-
-CUÁNDO PEDIR DADOS:
-- Al final de tu narrativa, si la acción requiere una tirada, termina con "🎲 Tira los dados."
-- Ejemplo: "Te acercas al guardia. 🎲 Tira los dados."
-- Solo pide dados para acciones que requieran suerte (combate, sigilo, alquimia, social).
-- NO pidas dados para acciones automáticas (caminar, mirar, hablar sin riesgo).
-
-EJEMPLO BIEN:
-"Transmutas el suelo y se levanta una pared de metal. La quemadura en tu brazo arde, pero aguantas. Alguien vio las chispas desde la calle."
-
-EJEMPLO MAL (NO HAGAS ESTO):
-"El suelo cruje bajo tus pies mientras dibujas el círculo de transmutación. El aire se llena de chispas azules y la tierra se eleva formando una barrera de metal oxidado. La quemadura en tu brazo izquierdo arde con cada movimiento, pero la pared se mantiene."
-
-FORMATO:
-- Solo texto narrativo.
-- Sin mencionar números ni mecánicas.
-- Frases cortas y directas.
-`;

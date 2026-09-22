@@ -54,7 +54,7 @@ function handleClockCompletion(state: GameState, clock: Clock, details: string[]
   if (idx !== -1) state.clocks[idx] = { ...clock, filled: 0 };
 }
 
-export async function processAction(input: string, state: GameState): Promise<GameResponse> {
+export async function processAction(input: string, state: GameState, recentNarratives?: string[]): Promise<GameResponse> {
   if (!isAlive(state) || isInsane(state)) {
     return {
       narrative: shouldRetire(state)
@@ -73,7 +73,7 @@ export async function processAction(input: string, state: GameState): Promise<Ga
   const dice = rollDice(modifier);
   const mechanicalResult = dispatchAction(parsed, dice, state);
 
-  return resolveMechanicalResult(parsed, dice, state, mechanicalResult, input);
+  return resolveMechanicalResult(parsed, dice, state, mechanicalResult, input, recentNarratives);
 }
 
 export function formatDiceResult(dice: DiceResult): string {
@@ -84,7 +84,8 @@ export function formatDiceResult(dice: DiceResult): string {
 export async function resolveDiceAction(
   pendingDice: { action: string; parsed: ParsedAction; modifier: number; state: GameState },
   diceResult: DiceResult,
-  state: GameState
+  state: GameState,
+  recentNarratives?: string[]
 ): Promise<GameResponse> {
   const { parsed, modifier } = pendingDice;
   
@@ -97,7 +98,7 @@ export async function resolveDiceAction(
   };
 
   const mechanicalResult = dispatchAction(parsed, dice, state);
-  return resolveMechanicalResult(parsed, dice, state, mechanicalResult, pendingDice.action);
+  return resolveMechanicalResult(parsed, dice, state, mechanicalResult, pendingDice.action, recentNarratives);
 }
 
 function processMoralResponse(parsed: ParsedAction, state: GameState) {
@@ -219,6 +220,7 @@ async function resolveMechanicalResult(
   state: GameState,
   mechanicalResult: MechanicalResult,
   actionText: string,
+  recentNarratives?: string[],
 ): Promise<GameResponse> {
   let newState = applyStateChanges(state, mechanicalResult.changes as Partial<GameState>);
 
@@ -366,6 +368,7 @@ async function resolveMechanicalResult(
     dice,
     mechanicalResult,
     state: newState,
+    recentNarratives,
   });
 
   return {

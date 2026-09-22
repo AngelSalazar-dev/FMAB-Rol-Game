@@ -6,17 +6,17 @@ initProviders();
 
 export async function POST(request: Request) {
   try {
-    const { action, state, diceResult, pendingDice } = await request.json();
+    const { action, state, diceResult, pendingDice, recentNarratives } = await request.json();
 
     // Case 1: Resolve dice result (after user rolls)
     if (pendingDice && diceResult) {
-      const response = await resolveDiceAction(pendingDice, diceResult, state as GameState);
+      const response = await resolveDiceAction(pendingDice, diceResult, state as GameState, recentNarratives);
       return Response.json(response);
     }
 
     // Case 2: New action (returns pending dice for manual rolling)
     if (action && state) {
-      const response = await processAction(action, state as GameState);
+      const response = await processAction(action, state as GameState, recentNarratives);
       return Response.json(response);
     }
 

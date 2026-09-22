@@ -43,6 +43,13 @@ export function useGame(initialState?: GameState, characterId?: number, initialM
     }
   }, [characterId]);
 
+  const getRecentNarratives = useCallback((msgs: GameMessage[]): string[] => {
+    return msgs
+      .filter(m => m.role === 'assistant')
+      .slice(-2)
+      .map(m => m.content);
+  }, []);
+
   const sendAction = useCallback(async (input: string) => {
     if (!input.trim() || isLoading) return;
 
@@ -52,10 +59,11 @@ export function useGame(initialState?: GameState, characterId?: number, initialM
     setMessages(newMessages);
 
     try {
+      const recentNarratives = getRecentNarratives(messagesRef.current);
       const response = await fetch('/api/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: input, state: stateRef.current }),
+        body: JSON.stringify({ action: input, state: stateRef.current, recentNarratives }),
       });
 
       if (!response.ok) {
@@ -90,7 +98,7 @@ export function useGame(initialState?: GameState, characterId?: number, initialM
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, saveGame]);
+  }, [isLoading, saveGame, getRecentNarratives]);
 
   const rollDiceAndResolve = useCallback(async (diceResult: DiceResult) => {
     if (!pendingDice || isLoading) return;
@@ -98,13 +106,15 @@ export function useGame(initialState?: GameState, characterId?: number, initialM
     setIsLoading(true);
     
     try {
+      const recentNarratives = getRecentNarratives(messagesRef.current);
       const response = await fetch('/api/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           pendingDice, 
           diceResult,
-          state: stateRef.current 
+          state: stateRef.current,
+          recentNarratives,
         }),
       });
 
@@ -132,7 +142,7 @@ export function useGame(initialState?: GameState, characterId?: number, initialM
     } finally {
       setIsLoading(false);
     }
-  }, [pendingDice, isLoading, saveGame]);
+  }, [pendingDice, isLoading, saveGame, getRecentNarratives]);
 
   const resetGame = useCallback((newState?: GameState) => {
     setState(newState || INITIAL_STATE);
