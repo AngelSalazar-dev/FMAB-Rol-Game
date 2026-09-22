@@ -78,12 +78,21 @@ export function cloneState(state: GameState): GameState {
 }
 
 export function applyStateChanges(state: GameState, changes: Partial<GameState>): GameState {
-  const { stress, health, sanity, morale, factions, inventory, companions, clocks, environment, morality, location, ...rest } = changes as any;
+  const c = changes as any;
   return {
     ...state,
-    ...rest,
-    ...(location !== undefined ? { location } : {}),
+    ...(c.location !== undefined ? { location: c.location } : {}),
     turn: state.turn + 1,
+    health: c.health ? { ...state.health, ...c.health } : state.health,
+    stress: c.stress !== undefined ? { ...state.stress, ...(typeof c.stress === 'object' ? c.stress : {}) } : state.stress,
+    sanity: c.sanity !== undefined ? { ...state.sanity, ...(typeof c.sanity === 'object' ? c.sanity : {}) } : state.sanity,
+    factions: c.factions ? { ...state.factions, ...c.factions } : state.factions,
+    inventory: c.inventory ? [...state.inventory] : state.inventory,
+    companions: c.companions ? [...c.companions] : state.companions,
+    clocks: c.clocks ? [...state.clocks] : state.clocks,
+    environment: c.environment ? { ...state.environment, ...c.environment } : state.environment,
+    morality: c.morality ? { ...state.morality, ...(typeof c.morality === 'object' && !Array.isArray(c.morality) ? c.morality : {}) } : state.morality,
+    character: c.character ? { ...state.character, ...c.character } : state.character,
   };
 }
 

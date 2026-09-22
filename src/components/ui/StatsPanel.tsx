@@ -103,6 +103,19 @@ export function StatsPanel({ character, health, stress, sanity }: StatsPanelProp
           </div>
         </div>
       )}
+
+      {character.skills && character.skills.length > 0 && (
+        <div className="border-t border-fmab-border pt-4">
+          <h3 className="font-mono text-xs text-fmab-gold mb-2 tracking-wider">HABILIDADES</h3>
+          <div className="flex flex-wrap gap-1">
+            {character.skills.map((skill: string) => (
+              <span key={skill} className="px-2 py-0.5 bg-fmab-gold/10 text-fmab-goldLight text-xs rounded border border-fmab-gold/20">
+                {skill}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -13,7 +13,7 @@ import { processCombat } from '@/engine/systems/combat';
 import { processStealth } from '@/engine/systems/stealth';
 import { processSocial } from '@/engine/systems/social';
 import { processExploration } from '@/engine/systems/exploration';
-import { processInventory } from '@/engine/systems/inventory';
+import { processInventory, addItem, removeItem } from '@/engine/systems/inventory';
 import { processRest } from '@/engine/systems/downtime';
 import { generateNarrative } from '@/engine/ai/router';
 
@@ -134,6 +134,21 @@ export async function processAction(input: string, state: GameState): Promise<Ga
         }
       }
     }
+  }
+
+  if (mechanicalResult.changes.inventory) {
+    const inv = mechanicalResult.changes.inventory;
+    if (inv.add) {
+      newState.inventory = addItem(newState, inv.add).inventory;
+    }
+    if (inv.remove) {
+      newState.inventory = removeItem(newState, inv.remove.name, inv.remove.quantity).inventory;
+    }
+  }
+
+  if (mechanicalResult.changes.environment) {
+    const env = mechanicalResult.changes.environment;
+    if (env.terrain) newState.environment.terrain = env.terrain as typeof newState.environment.terrain;
   }
 
   const narrative = await generateNarrative({
