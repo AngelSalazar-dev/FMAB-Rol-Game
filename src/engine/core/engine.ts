@@ -25,6 +25,7 @@ export interface GameResponse {
   actionType: string;
   outcome: 'complete' | 'partial' | 'miss';
   mechanicalDetails: string[];
+  pendingDice?: { action: string; parsed: ParsedAction; modifier: number; state: GameState };
 }
 
 function handleClockCompletion(state: GameState, clock: Clock, details: string[]) {
@@ -68,12 +69,34 @@ export async function processAction(input: string, state: GameState, recentNarra
   }
 
   const parsed = parseAction(input, state);
+  
+  // Actions that don't require dice
+  const noDiceTypes = ['inventory', 'moral'];
+  if (noDiceTypes.includes(parsed.type)) {
+    const attribute = getAttributeForAction(parsed, state);
+    const modifier = getModifier(state, attribute);
+    const dice = rollDice(modifier);
+    const mechanicalResult = dispatchAction(parsed, dice, state);
+    return resolveMechanicalResult(parsed, dice, state, mechanicalResult, input, recentNarratives);
+  }
+
+  // Actions that require dice - return pendingDice for manual roll
   const attribute = getAttributeForAction(parsed, state);
   const modifier = getModifier(state, attribute);
-  const dice = rollDice(modifier);
-  const mechanicalResult = dispatchAction(parsed, dice, state);
-
-  return resolveMechanicalResult(parsed, dice, state, mechanicalResult, input, recentNarratives);
+  
+  return {
+    narrative: '',
+    stateChanges: {},
+    actionType: parsed.type,
+    outcome: 'miss',
+    mechanicalDetails: [],
+    pendingDice: {
+      action: input,
+      parsed,
+      modifier,
+      state,
+    },
+  };
 }
 
 export function formatDiceResult(dice: DiceResult): string {
